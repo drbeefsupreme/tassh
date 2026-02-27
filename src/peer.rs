@@ -1,0 +1,90 @@
+//! Per-host peer connection state management.
+
+use std::collections::HashMap;
+use std::sync::Arc;
+use tokio::sync::{broadcast, mpsc};
+use tokio::task::JoinHandle;
+
+use crate::protocol::Frame;
+
+/// Registry of all connected peers, keyed by hostname.
+pub struct PeerRegistry {
+    peers: HashMap<String, PeerState>,
+    /// Broadcast channel for clipboard frames - all peers subscribe
+    clip_tx: broadcast::Sender<Arc<Frame>>,
+}
+
+/// State for a single connected peer.
+pub struct PeerState {
+    /// Number of active SSH sessions to this host
+    pub session_count: usize,
+    /// Whether clipboard TCP connection is established
+    pub connected: bool,
+    /// Set of SSH PIDs currently tracked (for dedup with ControlMaster)
+    pub watched_pids: std::collections::HashSet<u32>,
+    /// Task handles for active PID watchers (so we can abort on shutdown)
+    pub pid_watcher_handles: Vec<JoinHandle<()>>,
+    /// Sender to close the peer connection (drop to signal disconnect)
+    pub close_tx: Option<mpsc::Sender<()>>,
+}
+
+impl PeerRegistry {
+    /// Create a new registry with a broadcast channel for clipboard frames.
+    pub fn new() -> (Self, broadcast::Sender<Arc<Frame>>) {
+        let (clip_tx, _) = broadcast::channel::<Arc<Frame>>(16);
+        let registry = Self {
+            peers: HashMap::new(),
+            clip_tx: clip_tx.clone(),
+        };
+        (registry, clip_tx)
+    }
+
+    /// Get or create peer state for a hostname.
+    pub fn get_or_create(&mut self, hostname: &str) -> &mut PeerState {
+        self.peers.entry(hostname.to_owned()).or_insert_with(|| PeerState {
+            session_count: 0,
+            connected: false,
+            watched_pids: std::collections::HashSet::new(),
+            pid_watcher_handles: Vec::new(),
+            close_tx: None,
+        })
+    }
+
+    /// Get peer state by hostname (immutable).
+    pub fn get(&self, hostname: &str) -> Option<&PeerState> {
+        self.peers.get(hostname)
+    }
+
+    /// Get peer state by hostname (mutable).
+    pub fn get_mut(&mut self, hostname: &str) -> Option<&mut PeerState> {
+        self.peers.get_mut(hostname)
+    }
+
+    /// Remove peer entry entirely.
+    pub fn remove(&mut self, hostname: &str) -> Option<PeerState> {
+        self.peers.remove(hostname)
+    }
+
+    /// List all peers for status command.
+    pub fn list_peers(&self) -> Vec<crate::ipc::PeerInfo> {
+        self.peers
+            .iter()
+            .map(|(hostname, state)| crate::ipc::PeerInfo {
+                hostname: hostname.clone(),
+                connected: state.connected,
+                session_count: state.session_count,
+            })
+            .collect()
+    }
+
+    /// Get a subscriber to the clipboard broadcast channel.
+    pub fn subscribe_clipboard(&self) -> broadcast::Receiver<Arc<Frame>> {
+        self.clip_tx.subscribe()
+    }
+}
+
+impl Default for PeerRegistry {
+    fn default() -> Self {
+        Self::new().0
+    }
+}
