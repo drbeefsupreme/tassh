@@ -88,6 +88,13 @@ pub async fn run_daemon(port: u16) -> anyhow::Result<()> {
     let listener = UnixListener::bind(&sock_path)?;
     info!("daemon listening on {}", sock_path.display());
 
+    // Discover existing SSH sessions and probe their remotes
+    let discovery_registry = registry.clone();
+    let discovery_clip_tx = clip_tx.clone();
+    tokio::spawn(async move {
+        discover_existing_ssh_sessions(discovery_registry, discovery_clip_tx, port).await;
+    });
+
     // Handle graceful shutdown
     let mut sigterm = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())?;
 
@@ -218,6 +225,11 @@ async fn handle_connect(
                 start_peer_connection(&hostname_for_probe, port, reg_clone, clip_tx).await;
             } else {
                 debug!("no daemon on {hostname_for_probe}:{port}");
+                // Mark as probed but no daemon found
+                let mut reg = reg_clone.lock().await;
+                if let Some(peer) = reg.get_mut(&hostname_for_probe) {
+                    peer.probe_failed = true;
+                }
             }
         });
     }
@@ -303,6 +315,7 @@ async fn start_peer_connection(
             // Subscribe to clipboard broadcast
             let mut clip_rx = clip_tx.subscribe();
             let hostname_owned = hostname.to_owned();
+            let registry_for_cleanup = registry.clone();
 
             tokio::spawn(async move {
                 loop {
@@ -328,6 +341,13 @@ async fn start_peer_connection(
                             break;
                         }
                     }
+                }
+                // Connection ended - update registry to reflect disconnected state
+                let mut reg = registry_for_cleanup.lock().await;
+                if let Some(peer) = reg.get_mut(&hostname_owned) {
+                    peer.connected = false;
+                    peer.close_tx = None;
+                    info!("connection to {hostname_owned} closed, marked disconnected");
                 }
             });
         }
@@ -395,4 +415,91 @@ async fn resolve_tailscale_ip() -> anyhow::Result<String> {
         anyhow::bail!("tailscale ip -4 returned empty - is Tailscale running?");
     }
     Ok(ip)
+}
+
+/// Discover existing SSH sessions on daemon startup.
+/// Scans for running ssh processes and probes their remote hosts.
+async fn discover_existing_ssh_sessions(
+    registry: Arc<Mutex<PeerRegistry>>,
+    clip_tx: broadcast::Sender<Arc<Frame>>,
+    port: u16,
+) {
+    // Get list of ssh processes with their command lines
+    let output = match tokio::process::Command::new("pgrep")
+        .args(["-a", "ssh"])
+        .output()
+        .await
+    {
+        Ok(o) => o,
+        Err(e) => {
+            debug!("pgrep failed: {e}");
+            return;
+        }
+    };
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let mut hosts_to_probe: std::collections::HashSet<String> = std::collections::HashSet::new();
+
+    for line in stdout.lines() {
+        // Format: "PID ssh user@host" or "PID ssh host" or "PID ssh -p PORT host"
+        let parts: Vec<&str> = line.split_whitespace().collect();
+        if parts.len() < 2 {
+            continue;
+        }
+
+        // Skip ssh processes that are agent, master socket, or other non-connection types
+        let cmd_line = parts[1..].join(" ");
+        if cmd_line.contains("-A") && !cmd_line.contains("@") {
+            // Likely ssh-agent forward only
+            continue;
+        }
+
+        // Find the hostname - it's usually the last argument that looks like a host
+        // Skip flags and their arguments
+        let mut skip_next = false;
+        for part in &parts[1..] {
+            if skip_next {
+                skip_next = false;
+                continue;
+            }
+            if part.starts_with('-') {
+                // Some flags take arguments: -p, -l, -i, -F, -o, etc.
+                if *part == "-p" || *part == "-l" || *part == "-i" || *part == "-F" || *part == "-o" {
+                    skip_next = true;
+                }
+                continue;
+            }
+            // This might be user@host or just host
+            let hostname = if let Some(at_pos) = part.find('@') {
+                &part[at_pos + 1..]
+            } else {
+                *part
+            };
+            // Basic validation - contains dot or is Tailscale hostname
+            if hostname.contains('.') || hostname.chars().all(|c| c.is_alphanumeric() || c == '-') {
+                hosts_to_probe.insert(hostname.to_owned());
+            }
+        }
+    }
+
+    if hosts_to_probe.is_empty() {
+        debug!("no existing SSH sessions found");
+        return;
+    }
+
+    info!("found {} existing SSH sessions, probing for daemons", hosts_to_probe.len());
+
+    // Probe each unique host
+    for hostname in hosts_to_probe {
+        let reg = registry.clone();
+        let tx = clip_tx.clone();
+        tokio::spawn(async move {
+            if probe_remote(&hostname, port).await {
+                info!("startup: daemon found on {hostname}:{port}, connecting");
+                start_peer_connection(&hostname, port, reg, tx).await;
+            } else {
+                debug!("startup: no daemon on {hostname}:{port}");
+            }
+        });
+    }
 }

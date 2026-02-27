@@ -34,7 +34,10 @@ pub struct StatusResponse {
 #[derive(Debug, Serialize, Deserialize)]
 pub struct PeerInfo {
     pub hostname: String,
+    /// True if clipboard TCP connection is active
     pub connected: bool,
+    /// True if probe found no daemon on remote
+    pub no_daemon: bool,
     pub session_count: usize,
 }
 
@@ -115,12 +118,14 @@ mod tests {
                 PeerInfo {
                     hostname: "alpha.tailnet".to_string(),
                     connected: true,
+                    no_daemon: false,
                     session_count: 2,
                 },
                 PeerInfo {
                     hostname: "beta.tailnet".to_string(),
                     connected: false,
-                    session_count: 0,
+                    no_daemon: true,
+                    session_count: 1,
                 },
             ],
         };
@@ -129,9 +134,11 @@ mod tests {
         assert_eq!(decoded.peers.len(), 2);
         assert_eq!(decoded.peers[0].hostname, "alpha.tailnet");
         assert!(decoded.peers[0].connected);
+        assert!(!decoded.peers[0].no_daemon);
         assert_eq!(decoded.peers[0].session_count, 2);
         assert_eq!(decoded.peers[1].hostname, "beta.tailnet");
         assert!(!decoded.peers[1].connected);
-        assert_eq!(decoded.peers[1].session_count, 0);
+        assert!(decoded.peers[1].no_daemon);
+        assert_eq!(decoded.peers[1].session_count, 1);
     }
 }

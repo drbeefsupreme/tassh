@@ -18,8 +18,10 @@ pub struct PeerRegistry {
 pub struct PeerState {
     /// Number of active SSH sessions to this host
     pub session_count: usize,
-    /// Whether clipboard TCP connection is established
+    /// Whether clipboard TCP connection is established and active
     pub connected: bool,
+    /// True if we probed and no daemon was found on remote
+    pub probe_failed: bool,
     /// Set of SSH PIDs currently tracked (for dedup with ControlMaster)
     pub watched_pids: std::collections::HashSet<u32>,
     /// Task handles for active PID watchers (so we can abort on shutdown)
@@ -44,6 +46,7 @@ impl PeerRegistry {
         self.peers.entry(hostname.to_owned()).or_insert_with(|| PeerState {
             session_count: 0,
             connected: false,
+            probe_failed: false,
             watched_pids: std::collections::HashSet::new(),
             pid_watcher_handles: Vec::new(),
             close_tx: None,
@@ -66,12 +69,15 @@ impl PeerRegistry {
     }
 
     /// List all peers for status command.
+    /// Only returns peers with active sessions or connections.
     pub fn list_peers(&self) -> Vec<crate::ipc::PeerInfo> {
         self.peers
             .iter()
+            .filter(|(_, state)| state.session_count > 0 || state.connected)
             .map(|(hostname, state)| crate::ipc::PeerInfo {
                 hostname: hostname.clone(),
                 connected: state.connected,
+                no_daemon: state.probe_failed,
                 session_count: state.session_count,
             })
             .collect()

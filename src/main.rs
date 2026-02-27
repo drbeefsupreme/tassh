@@ -202,9 +202,16 @@ async fn run_status() -> anyhow::Result<()> {
     if response.peers.is_empty() {
         println!("daemon running, no active connections");
     } else {
-        println!("Active connections:");
+        println!("Peers:");
         for peer in response.peers {
-            let status = if peer.connected { "connected" } else { "probing" };
+            // Status reflects actual clipboard sync state
+            let status = if peer.connected {
+                "syncing"  // Clipboard TCP connection is active
+            } else if peer.no_daemon {
+                "no daemon"  // Remote doesn't have tassh running
+            } else {
+                "probing"  // Still checking for remote daemon
+            };
             println!(
                 "  {} -- {} ({} SSH session{})",
                 peer.hostname,
