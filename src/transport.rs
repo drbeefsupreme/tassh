@@ -19,7 +19,8 @@ use tokio::{
 };
 use tracing::{info, warn};
 
-use crate::protocol::{Frame, FrameError};
+use crate::clipboard::ClipboardWriter;
+use crate::protocol::{DisplayEnvironment, Frame, FrameError};
 
 /// Header length for a cssh frame: 2 magic + 1 version + 1 type + 4 length.
 const HEADER_LEN: usize = 8;
@@ -115,12 +116,16 @@ async fn resolve_tailscale_ip() -> Result<String, TransportError> {
 /// Run as the remote (server) side.
 ///
 /// Binds a TCP listener on `bind_addr:port` and accepts one connection at a time.
-/// For each accepted connection, frames are received and logged until the client
-/// disconnects, at which point a new `accept()` is issued.
+/// For each accepted connection, received frames are written to the system clipboard
+/// using [`ClipboardWriter`] with the given `display_env`.
 ///
 /// If `bind_addr` is `"auto"` (set by main.rs when `--bind` is not provided),
 /// the Tailscale IPv4 address is auto-detected.
-pub async fn server(bind_addr: &str, port: u16) -> Result<(), TransportError> {
+pub async fn server(
+    bind_addr: &str,
+    port: u16,
+    display_env: DisplayEnvironment,
+) -> Result<(), TransportError> {
     let resolved = if bind_addr == "auto" {
         resolve_tailscale_ip().await?
     } else {
@@ -137,10 +142,16 @@ pub async fn server(bind_addr: &str, port: u16) -> Result<(), TransportError> {
         apply_keepalive(&stream)?;
 
         let (mut reader, _writer) = stream.into_split();
+        // Create a ClipboardWriter per connection so each connection gets a fresh writer.
+        let mut writer = ClipboardWriter::new(display_env);
         loop {
             match recv_frame(&mut reader).await {
                 Ok(frame) => {
-                    info!("received frame: {} bytes payload", frame.payload.len());
+                    let kb = frame.payload.len() / 1024;
+                    info!("received frame: {kb} KB payload, writing to clipboard");
+                    if let Err(e) = writer.write(&frame.payload).await {
+                        warn!("clipboard write failed: {e}");
+                    }
                 }
                 Err(TransportError::ConnectionClosed) => {
                     warn!("client disconnected");
