@@ -90,7 +90,7 @@ Plans:
   3. Multiple SSH sessions to the same host share a single clipboard connection
   4. Closing all SSH sessions to a host disconnects the clipboard sync
   5. SSH works normally (no delay, no errors) when remote has no tassh daemon
-**Plans:** 2/4 plans executed
+**Plans:** 3/4 plans executed
 
 Plans:
 - [ ] 05-01-PLAN.md — Add Phase 5 dependencies (async-pidfd, serde, serde_json) and create IPC types + PID watcher modules
@@ -109,4 +109,4 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5
 | 2. Transport | 1/1 | Complete    | 2026-02-27 |
 | 3. Display and Clipboard | 3/3 | Complete    | 2026-02-27 |
 | 4. Integration and Packaging | 2/2 | Complete   | 2026-02-27 |
-| 5. SSH-triggered Activation | 2/4 | In Progress|  |
+| 5. SSH-triggered Activation | 3/4 | In Progress|  |

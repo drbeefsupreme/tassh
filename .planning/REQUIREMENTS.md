@@ -59,9 +59,9 @@
 - [x] **MESH-01**: Unified `tassh daemon` command (replaces local/remote)
 - [x] **MESH-02**: Unix socket IPC at `~/.tassh/daemon.sock` for notifications
 - [x] **MESH-03**: Multi-peer clipboard broadcast (send to all connected peers)
-- [ ] **MESH-04**: `tassh notify` subcommand for fast IPC notification
-- [ ] **MESH-05**: `tassh status` shows active peer connections
-- [ ] **MESH-06**: `tassh setup daemon` generates service + SSH config
+- [x] **MESH-04**: `tassh notify` subcommand for fast IPC notification
+- [x] **MESH-05**: `tassh status` shows active peer connections
+- [x] **MESH-06**: `tassh setup daemon` generates service + SSH config
 
 ## v2 Requirements
 

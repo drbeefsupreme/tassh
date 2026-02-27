@@ -3,12 +3,12 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: unknown
-last_updated: "2026-02-27T21:52:02.029Z"
+last_updated: "2026-02-27T21:56:06Z"
 progress:
   total_phases: 5
   completed_phases: 4
   total_plans: 11
-  completed_plans: 9
+  completed_plans: 10
 ---
 
 # Project State
@@ -23,11 +23,11 @@ See: .planning/PROJECT.md (updated 2026-02-27)
 ## Current Position
 
 Phase: 5 of 5 (Peer-to-Peer Mesh)
-Plan: 2 of 4 in current phase
-Status: Phase 5 in progress — Plan 05-02 complete; daemon core (IPC server, peer orchestration, TCP server, clipboard broadcast) ready
-Last activity: 2026-02-27 — Plan 05-02 complete: PeerRegistry, PeerState, run_daemon(), IPC dispatch, TCP server; all 23 tests pass
+Plan: 3 of 4 in current phase
+Status: Phase 5 in progress — Plan 05-03 complete; CLI integration done (daemon, notify, status, setup daemon subcommands wired)
+Last activity: 2026-02-27 — Plan 05-03 complete: src/cli.rs, src/main.rs, src/setup.rs updated; all 28 tests pass; `tassh daemon/notify/status/setup daemon` fully operational
 
-Progress: [██████████] (phase 5 in progress, 2/4 plans done)
+Progress: [██████████] (phase 5 in progress, 3/4 plans done)
 
 ## Performance Metrics
 
@@ -44,10 +44,10 @@ Progress: [██████████] (phase 5 in progress, 2/4 plans done)
 | 02-transport | 1 | 3 min | 3 min |
 | 03-display-and-clipboard | 3 | 6 min | 2 min |
 | 04-integration-and-packaging | 2 | ~33 min | ~16 min |
-| 05-peer-to-peer-mesh | 2 | 4 min | 2 min |
+| 05-peer-to-peer-mesh | 3 | 7 min | 2.3 min |
 
 **Recent Trend:**
-- Last 5 plans: 03-03 (2 min), 04-01 (3 min), 04-02 (~30 min), 05-01 (2 min), 05-02 (2 min)
+- Last 5 plans: 04-01 (3 min), 04-02 (~30 min), 05-01 (2 min), 05-02 (2 min), 05-03 (3 min)
 - Trend: stable
 
 *Updated after each plan completion*
@@ -95,6 +95,10 @@ Recent decisions affecting current work:
 - [Phase 05-02]: mpsc-to-broadcast bridge: watch_clipboard() mpsc channel relayed to broadcast::Sender<Arc<Frame>> for multi-peer distribution without changing Phase 3 API
 - [Phase 05-02]: Arc<Frame> in broadcast channel avoids cloning PNG payloads per subscriber — one Arc allocation, N reference increments
 - [Phase 05-02]: Single-instance daemon guard via Unix socket connect-test — simpler than PID files, no stale PID edge cases
+- [Phase 05-03]: Notify always exits 0 — SSH LocalCommand failure breaks SSH; daemon unavailability must be silent (debug log only)
+- [Phase 05-03]: 200ms/100ms notify timeout pair — imperceptible to SSH startup, sufficient for local Unix socket IPC
+- [Phase 05-03]: SSH config idempotency via # tassh: marker — comment-based detection survives whitespace/format changes
+- [Phase 05-03]: LocalCommand conflict detection warns rather than errors — user may have existing LocalCommand entries
 
 ### Pending Todos
 
@@ -114,5 +118,5 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-02-27
-Stopped at: Completed 05-02-PLAN.md — daemon.rs (IPC server, peer orchestration, TCP server) and peer.rs (PeerRegistry, PeerState); 23 tests pass
+Stopped at: Completed 05-03-PLAN.md — CLI integration (daemon, notify, status, setup daemon subcommands); 28 tests pass
 Resume file: None
