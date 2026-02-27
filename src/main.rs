@@ -24,22 +24,80 @@ async fn main() {
             let (remote_host, port) = parse_remote(&args.remote, args.port);
 
             let (tx, rx) = tokio::sync::mpsc::channel::<protocol::Frame>(16);
-            // tx will be used by the clipboard watcher in Phase 3.
-            let _tx = tx;
 
-            if let Err(e) = transport::client(&remote_host, port, rx).await {
-                eprintln!("transport error: {e}");
-                std::process::exit(1);
+            // Spawn clipboard watcher — polls local clipboard, wraps PNG bytes in Frame,
+            // sends over mpsc channel to the transport client.
+            let watch_handle = tokio::spawn(async move {
+                if let Err(e) = clipboard::watch_clipboard(tx).await {
+                    tracing::error!("clipboard watcher error: {e}");
+                }
+            });
+
+            // Run transport client and handle Ctrl-C for clean shutdown.
+            tokio::select! {
+                result = transport::client(&remote_host, port, rx) => {
+                    if let Err(e) = result {
+                        eprintln!("transport error: {e}");
+                        std::process::exit(1);
+                    }
+                }
+                _ = tokio::signal::ctrl_c() => {
+                    tracing::info!("Ctrl-C received, shutting down");
+                }
             }
+
+            // Abort the watcher if still running (e.g. after Ctrl-C).
+            watch_handle.abort();
         }
         Commands::Remote(args) => {
             // Use explicit --bind if provided; otherwise signal auto-detection.
             let bind_addr = args.bind.as_deref().unwrap_or("auto").to_owned();
 
-            if let Err(e) = transport::server(&bind_addr, args.port).await {
-                eprintln!("transport error: {e}");
+            // Detect and initialise the display environment (spawns Xvfb if headless).
+            let display_mgr = match display::DisplayManager::detect_and_init().await {
+                Ok(m) => m,
+                Err(e) => {
+                    eprintln!("display init error: {e}");
+                    std::process::exit(1);
+                }
+            };
+
+            // Verify required clipboard tools are installed before accepting connections.
+            if let Err(e) = clipboard::check_clipboard_tools(&display_mgr.env).await {
+                eprintln!("clipboard tool check failed: {e}");
+                display_mgr.shutdown().await;
                 std::process::exit(1);
             }
+
+            // Set up SIGTERM handler for clean shutdown.
+            let mut sigterm = match tokio::signal::unix::signal(
+                tokio::signal::unix::SignalKind::terminate(),
+            ) {
+                Ok(s) => s,
+                Err(e) => {
+                    eprintln!("failed to install SIGTERM handler: {e}");
+                    display_mgr.shutdown().await;
+                    std::process::exit(1);
+                }
+            };
+
+            // Run server loop; handle SIGTERM and Ctrl-C for clean shutdown.
+            tokio::select! {
+                result = transport::server(&bind_addr, args.port, display_mgr.env) => {
+                    if let Err(e) = result {
+                        eprintln!("server error: {e}");
+                    }
+                }
+                _ = sigterm.recv() => {
+                    tracing::info!("SIGTERM received, shutting down");
+                }
+                _ = tokio::signal::ctrl_c() => {
+                    tracing::info!("Ctrl-C received, shutting down");
+                }
+            }
+
+            // Shutdown: kill Xvfb (if any) and remove ~/.cssh/display.
+            display_mgr.shutdown().await;
         }
         Commands::Status => {
             println!("status: not yet implemented");
