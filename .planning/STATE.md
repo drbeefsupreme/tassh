@@ -10,9 +10,9 @@ See: .planning/PROJECT.md (updated 2026-02-27)
 ## Current Position
 
 Phase: 4 of 4 (Integration and Packaging)
-Plan: 1 of 1 in current phase
-Status: Phase 4 complete
-Last activity: 2026-02-27 — Plan 04-01 complete: cssh setup local/remote subcommand; systemd unit file generation; systemctl orchestration; shell snippet output
+Plan: 2 of 2 in current phase
+Status: Phase 4 complete — all E2E requirements verified on real hardware
+Last activity: 2026-02-27 — Plan 04-02 complete: E2E validation (Claude Code, Codex, OpenCode all confirmed); fixed force_xvfb bug in cssh remote
 
 Progress: [██████████] 100%
 
@@ -30,10 +30,10 @@ Progress: [██████████] 100%
 | 01-foundation | 1 | 2 min | 2 min |
 | 02-transport | 1 | 3 min | 3 min |
 | 03-display-and-clipboard | 3 | 6 min | 2 min |
-| 04-integration-and-packaging | 1 | 3 min | 3 min |
+| 04-integration-and-packaging | 2 | ~33 min | ~16 min |
 
 **Recent Trend:**
-- Last 5 plans: 01-01 (2 min), 02-01 (3 min), 03-01 (2 min), 03-02 (2 min), 03-03 (2 min), 04-01 (3 min)
+- Last 5 plans: 02-01 (3 min), 03-01 (2 min), 03-02 (2 min), 03-03 (2 min), 04-01 (3 min), 04-02 (~30 min)
 - Trend: stable
 
 *Updated after each plan completion*
@@ -74,6 +74,7 @@ Recent decisions affecting current work:
 - [04-01]: Binary path hardcoded to ~/.cargo/bin/cssh — matches cargo install --path . default install location
 - [04-01]: Shell snippet uses POSIX sh syntax (. not source) for bash and zsh compatibility
 - [04-01]: pub mod cli added to lib.rs alongside pub mod setup to enable integration test access to CLI types
+- [04-02]: cssh remote always passes force_xvfb=true to detect_and_init() — ensures ~/.cssh/display is written and SSH sessions can read the correct clipboard regardless of host desktop environment
 
 ### Pending Todos
 
@@ -93,5 +94,5 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-02-27
-Stopped at: Completed 04-01-PLAN.md — Phase 4 complete: cssh setup subcommand, systemd service generation, systemctl orchestration, shell snippet
+Stopped at: Completed 04-02-PLAN.md — E2E validation complete: all three tools (Claude Code, Codex, OpenCode) confirmed working; fixed force_xvfb bug in cssh remote
 Resume file: None

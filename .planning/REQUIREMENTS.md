@@ -41,9 +41,9 @@
 
 ### End-to-End
 
-- [ ] **E2E-01**: User takes screenshot on local machine, Ctrl-V in Claude Code on remote shows [Image #1]
-- [ ] **E2E-02**: User takes screenshot on local machine, Ctrl-V in Codex on remote shows the image
-- [ ] **E2E-03**: User takes screenshot on local machine, Ctrl-V in OpenCode on remote shows the image
+- [x] **E2E-01**: User takes screenshot on local machine, Ctrl-V in Claude Code on remote shows [Image #1]
+- [x] **E2E-02**: User takes screenshot on local machine, Ctrl-V in Codex on remote shows the image
+- [x] **E2E-03**: User takes screenshot on local machine, Ctrl-V in OpenCode on remote shows the image
 
 ## v2 Requirements
 
@@ -96,9 +96,9 @@
 | SRVC-01 | Phase 1 | Complete |
 | SRVC-02 | Phase 4 | Complete |
 | SRVC-03 | Phase 4 | Complete |
-| E2E-01 | Phase 4 | Pending |
-| E2E-02 | Phase 4 | Pending |
-| E2E-03 | Phase 4 | Pending |
+| E2E-01 | Phase 4 | Complete |
+| E2E-02 | Phase 4 | Complete |
+| E2E-03 | Phase 4 | Complete |
 
 **Coverage:**
 - v1 requirements: 22 total

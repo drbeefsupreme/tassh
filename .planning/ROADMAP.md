@@ -15,7 +15,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 1: Foundation** - Binary scaffold with clap subcommands, wire protocol types, and framing logic (completed 2026-02-27)
 - [x] **Phase 2: Transport** - TCP sender and receiver with reconnect and length-prefixed framing (completed 2026-02-27)
 - [x] **Phase 3: Display and Clipboard** - Xvfb lifecycle management, local clipboard reading, remote clipboard writing (completed 2026-02-27)
-- [ ] **Phase 4: Integration and Packaging** - Full pipeline wiring, systemd service units, shell snippet, E2E validation
+- [x] **Phase 4: Integration and Packaging** - Full pipeline wiring, systemd service units, shell snippet, E2E validation (completed 2026-02-27)
 
 ## Phase Details
 
@@ -71,7 +71,7 @@ Plans:
   3. Ctrl-V in OpenCode on the remote shows the screenshot image
   4. `systemctl --user start cssh-local` and `systemctl --user start cssh-remote` start both daemons and they survive across reboots
   5. Adding the provided shell snippet to `.bashrc` on the remote causes `$DISPLAY` to be set automatically in new SSH sessions
-**Plans:** 1/2 plans executed
+**Plans:** 2/2 plans complete
 
 Plans:
 - [ ] 04-01-PLAN.md — Add `cssh setup` subcommand with systemd unit file generation, service orchestration, and shell snippet
@@ -87,7 +87,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4
 | 1. Foundation | 1/1 | Complete   | 2026-02-27 |
 | 2. Transport | 1/1 | Complete    | 2026-02-27 |
 | 3. Display and Clipboard | 3/3 | Complete    | 2026-02-27 |
-| 4. Integration and Packaging | 1/2 | In Progress|  |
+| 4. Integration and Packaging | 2/2 | Complete   | 2026-02-27 |
 
 ### Phase 5: Peer-to-peer mesh with Tailscale auto-discovery and SSH-triggered activation
 
