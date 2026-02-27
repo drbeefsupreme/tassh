@@ -57,7 +57,7 @@ Plans:
   5. Local auto-detects Wayland vs X11 and uses the correct clipboard reading path without manual configuration
 **Plans:** 3/3 plans complete
 Plans:
-- [ ] 03-01-PLAN.md — Add Phase 3 dependencies and implement DisplayManager (Xvfb lifecycle, stale lock cleanup, display file)
+- [x] 03-01-PLAN.md — Add Phase 3 dependencies and implement DisplayManager (Xvfb lifecycle, stale lock cleanup, display file) (completed 2026-02-27)
 - [ ] 03-02-PLAN.md — Implement clipboard reading (local arboard watcher) and clipboard writing (remote xclip/wl-copy subprocess dispatch)
 - [ ] 03-03-PLAN.md — Wire display and clipboard into daemon main loop with SIGTERM/Ctrl-C clean shutdown
 
@@ -82,7 +82,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4
 |-------|----------------|--------|-----------|
 | 1. Foundation | 1/1 | Complete   | 2026-02-27 |
 | 2. Transport | 1/1 | Complete    | 2026-02-27 |
-| 3. Display and Clipboard | 3/3 | Complete   | 2026-02-27 |
+| 3. Display and Clipboard | 3/3 | Complete    | 2026-02-27 |
 | 4. Integration and Packaging | 0/? | Not started | - |
 
 ### Phase 5: Peer-to-peer mesh with Tailscale auto-discovery and SSH-triggered activation
