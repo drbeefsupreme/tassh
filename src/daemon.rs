@@ -50,8 +50,8 @@ pub async fn run_daemon(port: u16) -> anyhow::Result<()> {
     // Remove stale socket from previous crash
     let _ = std::fs::remove_file(&sock_path);
 
-    // Initialize display (force_xvfb=true for consistent behavior)
-    let display_mgr = DisplayManager::detect_and_init(true).await?;
+    // Initialize display (auto-detect X11/Wayland on desktop, Xvfb on headless)
+    let display_mgr = DisplayManager::detect_and_init(false).await?;
     info!("display initialized: {:?}", display_mgr.env);
 
     // Create peer registry and clipboard broadcast channel
