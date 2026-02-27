@@ -43,7 +43,7 @@ Plans:
   4. Partial write and partial read are handled correctly — `write_all` and `read_exact` used throughout
 **Plans:** 1 plan
 Plans:
-- [ ] 02-01-PLAN.md — TCP transport with server/client, keepalive, reconnect, and loopback integration test
+- [x] 02-01-PLAN.md — TCP transport with server/client, keepalive, reconnect, and loopback integration test
 
 ### Phase 3: Display and Clipboard
 **Goal**: The remote daemon correctly manages a display environment (Wayland, X11, or Xvfb) and clipboard images written to the remote clipboard survive after the write operation; the local daemon reads new clipboard images reliably
@@ -77,6 +77,6 @@ Phases execute in numeric order: 1 → 2 → 3 → 4
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Foundation | 1/1 | Complete   | 2026-02-27 |
-| 2. Transport | 0/1 | In progress | - |
+| 2. Transport | 1/1 | Complete | 2026-02-27 |
 | 3. Display and Clipboard | 0/? | Not started | - |
 | 4. Integration and Packaging | 0/? | Not started | - |

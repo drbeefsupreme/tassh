@@ -5,33 +5,34 @@
 See: .planning/PROJECT.md (updated 2026-02-27)
 
 **Core value:** Ctrl-V on the remote machine pastes the local screenshot into the CLI tool — no extra steps, no file juggling
-**Current focus:** Phase 1 — Foundation
+**Current focus:** Phase 2 — Transport
 
 ## Current Position
 
-Phase: 1 of 4 (Foundation)
+Phase: 2 of 4 (Transport)
 Plan: 1 of ? in current phase
 Status: In progress
-Last activity: 2026-02-27 — Plan 01-01 complete: cssh scaffold + wire protocol
+Last activity: 2026-02-27 — Plan 02-01 complete: TCP transport layer with auto-reconnect, keepalive, integration tests
 
-Progress: [█░░░░░░░░░] 10%
+Progress: [██░░░░░░░░] 20%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 1
-- Average duration: 2 min
-- Total execution time: 0.03 hours
+- Total plans completed: 2
+- Average duration: 2.5 min
+- Total execution time: 0.08 hours
 
 **By Phase:**
 
 | Phase | Plans | Total | Avg/Plan |
 |-------|-------|-------|----------|
 | 01-foundation | 1 | 2 min | 2 min |
+| 02-transport | 1 | 3 min | 3 min |
 
 **Recent Trend:**
-- Last 5 plans: 01-01 (2 min)
-- Trend: —
+- Last 5 plans: 01-01 (2 min), 02-01 (3 min)
+- Trend: stable
 
 *Updated after each plan completion*
 
@@ -51,6 +52,12 @@ Recent decisions affecting current work:
 - [01-01]: MAGIC = [0xC5, 0x53] — 0xC5 is non-ASCII, 0x53 is 'S' (cssh)
 - [01-01]: Frame::to_bytes returns Result to enforce TooLarge guard on payloads > u32::MAX
 - [01-01]: #[allow(dead_code)] on protocol.rs keeps cargo build warning-free until Phase 2
+- [02-01]: Port changed from 34782 to 9877 (plan spec for transport phase)
+- [02-01]: server() is single-client-at-a-time for v1 — simpler error handling, sufficient for use case
+- [02-01]: "auto" sentinel string in bind_addr signals Tailscale IP auto-detection in server()
+- [02-01]: src/lib.rs added for dual binary+lib crate — enables integration tests to import from cssh::
+- [02-01]: Frame gets #[derive(Debug)] — required by Result::unwrap() in integration tests
+- [02-01]: rand::random::<f64>() used for jitter — rand 0.10 removed thread_rng().gen_range() API
 
 ### Pending Todos
 
@@ -66,5 +73,5 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-02-27
-Stopped at: Completed 01-01-PLAN.md — cssh scaffold + wire protocol complete
+Stopped at: Completed 02-01-PLAN.md — TCP transport layer complete
 Resume file: None

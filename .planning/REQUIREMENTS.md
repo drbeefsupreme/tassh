@@ -7,9 +7,9 @@
 
 ### Transport
 
-- [ ] **XPRT-01**: Local daemon connects to remote daemon over TCP via Tailscale
+- [x] **XPRT-01**: Local daemon connects to remote daemon over TCP via Tailscale
 - [x] **XPRT-02**: Images are framed as length-prefixed PNG payloads
-- [ ] **XPRT-03**: Connection automatically reconnects with exponential backoff on loss
+- [x] **XPRT-03**: Connection automatically reconnects with exponential backoff on loss
 
 ### Clipboard Reading (Local)
 
@@ -77,9 +77,9 @@
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| XPRT-01 | Phase 2 | Pending |
+| XPRT-01 | Phase 2 | Complete |
 | XPRT-02 | Phase 1 | Complete |
-| XPRT-03 | Phase 2 | Pending |
+| XPRT-03 | Phase 2 | Complete |
 | CLRD-01 | Phase 3 | Pending |
 | CLRD-02 | Phase 3 | Pending |
 | CLRD-03 | Phase 3 | Pending |
