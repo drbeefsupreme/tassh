@@ -14,7 +14,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 
 - [x] **Phase 1: Foundation** - Binary scaffold with clap subcommands, wire protocol types, and framing logic (completed 2026-02-27)
 - [x] **Phase 2: Transport** - TCP sender and receiver with reconnect and length-prefixed framing (completed 2026-02-27)
-- [ ] **Phase 3: Display and Clipboard** - Xvfb lifecycle management, local clipboard reading, remote clipboard writing
+- [x] **Phase 3: Display and Clipboard** - Xvfb lifecycle management, local clipboard reading, remote clipboard writing (completed 2026-02-27)
 - [ ] **Phase 4: Integration and Packaging** - Full pipeline wiring, systemd service units, shell snippet, E2E validation
 
 ## Phase Details
@@ -55,7 +55,7 @@ Plans:
   3. On a local machine with a screenshot on the clipboard, the local clipboard watcher emits the image bytes (verified via log output) without polling the clipboard when it has not changed
   4. Stale Xvfb lock files from a previous crash do not prevent the remote daemon from starting cleanly
   5. Local auto-detects Wayland vs X11 and uses the correct clipboard reading path without manual configuration
-**Plans:** 2/3 plans executed
+**Plans:** 3/3 plans complete
 Plans:
 - [ ] 03-01-PLAN.md — Add Phase 3 dependencies and implement DisplayManager (Xvfb lifecycle, stale lock cleanup, display file)
 - [ ] 03-02-PLAN.md — Implement clipboard reading (local arboard watcher) and clipboard writing (remote xclip/wl-copy subprocess dispatch)
@@ -82,7 +82,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4
 |-------|----------------|--------|-----------|
 | 1. Foundation | 1/1 | Complete   | 2026-02-27 |
 | 2. Transport | 1/1 | Complete    | 2026-02-27 |
-| 3. Display and Clipboard | 2/3 | In Progress|  |
+| 3. Display and Clipboard | 3/3 | Complete   | 2026-02-27 |
 | 4. Integration and Packaging | 0/? | Not started | - |
 
 ### Phase 5: Peer-to-peer mesh with Tailscale auto-discovery and SSH-triggered activation

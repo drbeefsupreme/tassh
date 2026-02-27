@@ -10,18 +10,18 @@ See: .planning/PROJECT.md (updated 2026-02-27)
 ## Current Position
 
 Phase: 3 of 4 (Display and Clipboard)
-Plan: 2 of ? in current phase
-Status: In progress
-Last activity: 2026-02-27 — Plan 03-02 complete: ClipboardReader (watch_clipboard) + ClipboardWriter (xclip/wl-copy subprocess) in src/clipboard.rs
+Plan: 3 of 3 in current phase
+Status: Phase 3 complete
+Last activity: 2026-02-27 — Plan 03-03 complete: DisplayManager + clipboard wiring into daemon main loop; SIGTERM/Ctrl-C clean shutdown; cargo build + all tests pass
 
-Progress: [███░░░░░░░] 30%
+Progress: [█████░░░░░] 50%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 3
+- Total plans completed: 4
 - Average duration: 2.3 min
-- Total execution time: 0.12 hours
+- Total execution time: 0.15 hours
 
 **By Phase:**
 
@@ -29,10 +29,10 @@ Progress: [███░░░░░░░] 30%
 |-------|-------|-------|----------|
 | 01-foundation | 1 | 2 min | 2 min |
 | 02-transport | 1 | 3 min | 3 min |
-| 03-display-and-clipboard | 2 | 4 min | 2 min |
+| 03-display-and-clipboard | 3 | 6 min | 2 min |
 
 **Recent Trend:**
-- Last 5 plans: 01-01 (2 min), 02-01 (3 min), 03-01 (2 min), 03-02 (2 min)
+- Last 5 plans: 01-01 (2 min), 02-01 (3 min), 03-01 (2 min), 03-02 (2 min), 03-03 (2 min)
 - Trend: stable
 
 *Updated after each plan completion*
@@ -66,6 +66,9 @@ Recent decisions affecting current work:
 - [Phase 03-02]: arboard polling loop runs in single spawn_blocking (not per-poll) to keep !Send Clipboard on one thread
 - [Phase 03-02]: xclip/wl-copy subprocess stored without .wait() — required for X11 selection ownership persistence
 - [Phase 03-02]: startup-skip: initial clipboard hash recorded but NOT sent to avoid re-sending stale screenshot on restart
+- [Phase 03-03]: watch_clipboard() signature changed to Sender<Frame> (Option A) — simpler than a converter task
+- [Phase 03-03]: ClipboardWriter created per-connection in server() — each connection gets fresh writer state
+- [Phase 03-03]: display_mgr.env is Copy so passes cleanly to server() without consuming display_mgr for shutdown
 
 ### Pending Todos
 
@@ -85,5 +88,5 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-02-27
-Stopped at: Completed 03-02-PLAN.md — ClipboardReader + ClipboardWriter in src/clipboard.rs complete
+Stopped at: Completed 03-03-PLAN.md — Phase 3 complete: display + clipboard + main loop wiring done
 Resume file: None
