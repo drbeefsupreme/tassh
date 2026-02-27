@@ -5,16 +5,16 @@
 See: .planning/PROJECT.md (updated 2026-02-27)
 
 **Core value:** Ctrl-V on the remote machine pastes the local screenshot into the CLI tool — no extra steps, no file juggling
-**Current focus:** Phase 4 — Integration and Packaging
+**Current focus:** Phase 5 — Peer-to-Peer Mesh with Tailscale Auto-Discovery and SSH-Triggered Activation
 
 ## Current Position
 
-Phase: 4 of 4 (Integration and Packaging)
-Plan: 2 of 2 in current phase
-Status: Phase 4 complete — all E2E requirements verified on real hardware
-Last activity: 2026-02-27 — Plan 04-02 complete: E2E validation (Claude Code, Codex, OpenCode all confirmed); fixed force_xvfb bug in cssh remote
+Phase: 5 of 5 (Peer-to-Peer Mesh)
+Plan: 1 of 4 in current phase
+Status: Phase 5 in progress — Plan 05-01 complete; IPC types and PID watcher foundation ready
+Last activity: 2026-02-27 — Plan 05-01 complete: IpcMessage types, StatusResponse/PeerInfo, watch_pid() via async-pidfd; all 23 tests pass
 
-Progress: [██████████] 100%
+Progress: [██████████] (phase 5 started, 1/4 plans done)
 
 ## Performance Metrics
 
@@ -31,9 +31,10 @@ Progress: [██████████] 100%
 | 02-transport | 1 | 3 min | 3 min |
 | 03-display-and-clipboard | 3 | 6 min | 2 min |
 | 04-integration-and-packaging | 2 | ~33 min | ~16 min |
+| 05-peer-to-peer-mesh | 1 | 2 min | 2 min |
 
 **Recent Trend:**
-- Last 5 plans: 02-01 (3 min), 03-01 (2 min), 03-02 (2 min), 03-03 (2 min), 04-01 (3 min), 04-02 (~30 min)
+- Last 5 plans: 03-02 (2 min), 03-03 (2 min), 04-01 (3 min), 04-02 (~30 min), 05-01 (2 min)
 - Trend: stable
 
 *Updated after each plan completion*
@@ -75,6 +76,9 @@ Recent decisions affecting current work:
 - [04-01]: Shell snippet uses POSIX sh syntax (. not source) for bash and zsh compatibility
 - [04-01]: pub mod cli added to lib.rs alongside pub mod setup to enable integration test access to CLI types
 - [04-02]: cssh remote always passes force_xvfb=true to detect_and_init() — ensures ~/.cssh/display is written and SSH sessions can read the correct clipboard regardless of host desktop environment
+- [05-01]: serde tag on IpcMessage enum produces {"type": "Connect", ...} discriminated union JSON — matches RESEARCH.md Pattern 1 and is human-readable for debugging
+- [05-01]: watch_pid returns Pin<Box<dyn Future + Send>> for ergonomic tokio::spawn without extra boxing at call site
+- [05-01]: ESRCH errno in pidfd_open maps to immediate return (process already gone), not an error
 
 ### Pending Todos
 
@@ -94,5 +98,5 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-02-27
-Stopped at: Completed 04-02-PLAN.md — E2E validation complete: all three tools (Claude Code, Codex, OpenCode) confirmed working; fixed force_xvfb bug in cssh remote
+Stopped at: Completed 05-01-PLAN.md — IPC types (IpcMessage, StatusResponse, PeerInfo) and watch_pid() async pidfd wrapper; 23 tests pass
 Resume file: None

@@ -52,12 +52,12 @@
 - [ ] **SSH-01**: LocalCommand in `~/.ssh/config` notifies daemon on SSH connect
 - [ ] **SSH-02**: Daemon probes remote host for tassh daemon when SSH connects
 - [ ] **SSH-03**: Single connection per unique remote host (regardless of SSH session count)
-- [ ] **SSH-04**: SSH process PID watched via pidfd for session lifecycle
+- [x] **SSH-04**: SSH process PID watched via pidfd for session lifecycle
 
 ### Mesh Architecture
 
 - [ ] **MESH-01**: Unified `tassh daemon` command (replaces local/remote)
-- [ ] **MESH-02**: Unix socket IPC at `~/.tassh/daemon.sock` for notifications
+- [x] **MESH-02**: Unix socket IPC at `~/.tassh/daemon.sock` for notifications
 - [ ] **MESH-03**: Multi-peer clipboard broadcast (send to all connected peers)
 - [ ] **MESH-04**: `tassh notify` subcommand for fast IPC notification
 - [ ] **MESH-05**: `tassh status` shows active peer connections
