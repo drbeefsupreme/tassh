@@ -1,5 +1,4 @@
 //! Wire protocol framing types.
-#![allow(dead_code)]
 
 /// Magic bytes that identify a cssh frame.
 /// 0xC5 is non-ASCII (prevents confusion with text), 0x53 is 'S'.
