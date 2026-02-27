@@ -71,7 +71,11 @@ Plans:
   3. Ctrl-V in OpenCode on the remote shows the screenshot image
   4. `systemctl --user start cssh-local` and `systemctl --user start cssh-remote` start both daemons and they survive across reboots
   5. Adding the provided shell snippet to `.bashrc` on the remote causes `$DISPLAY` to be set automatically in new SSH sessions
-**Plans**: TBD
+**Plans:** 2 plans
+
+Plans:
+- [ ] 04-01-PLAN.md — Add `cssh setup` subcommand with systemd unit file generation, service orchestration, and shell snippet
+- [ ] 04-02-PLAN.md — E2E validation checkpoint: verify screenshot paste in Claude Code, Codex, and OpenCode
 
 ## Progress
 
