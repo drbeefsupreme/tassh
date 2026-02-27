@@ -298,7 +298,7 @@ async fn start_peer_connection(
                 warn!("failed to set keepalive for {addr}: {e}");
             }
 
-            let (_reader, mut writer) = stream.into_split();
+            let (mut reader, mut writer) = stream.into_split();
 
             // Create close channel
             let (close_tx, mut close_rx) = mpsc::channel::<()>(1);
@@ -316,6 +316,9 @@ async fn start_peer_connection(
             let mut clip_rx = clip_tx.subscribe();
             let hostname_owned = hostname.to_owned();
             let registry_for_cleanup = registry.clone();
+
+            // Buffer for detecting remote close (we don't expect data, just EOF)
+            let mut read_buf = [0u8; 1];
 
             tokio::spawn(async move {
                 loop {
@@ -339,6 +342,23 @@ async fn start_peer_connection(
                         _ = close_rx.recv() => {
                             info!("closing connection to {hostname_owned}");
                             break;
+                        }
+                        // Monitor for remote disconnect - read returns 0 (EOF) or error
+                        read_result = tokio::io::AsyncReadExt::read(&mut reader, &mut read_buf) => {
+                            match read_result {
+                                Ok(0) => {
+                                    info!("remote {hostname_owned} closed connection (EOF)");
+                                    break;
+                                }
+                                Err(e) => {
+                                    info!("remote {hostname_owned} connection error: {e}");
+                                    break;
+                                }
+                                Ok(_) => {
+                                    // Unexpected data from remote, ignore
+                                    debug!("unexpected data from {hostname_owned}");
+                                }
+                            }
                         }
                     }
                 }
