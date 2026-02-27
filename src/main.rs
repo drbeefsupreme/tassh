@@ -13,7 +13,7 @@ async fn main() {
 
     match cli.command {
         Commands::Local(args) => {
-            println!("cssh local: remote={} port={}", args.remote_host, args.port);
+            println!("cssh local: remote={} port={}", args.remote, args.port);
         }
         Commands::Remote(args) => {
             println!("cssh remote: port={}", args.port);
