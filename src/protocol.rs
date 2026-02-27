@@ -51,6 +51,7 @@ pub enum DisplayEnvironment {
 /// [4..8]  payload length as u32 (4 bytes, big-endian)
 /// [8..]   payload (variable)
 /// ```
+#[derive(Debug)]
 pub struct Frame {
     pub frame_type: u8,
     pub payload: Vec<u8>,
