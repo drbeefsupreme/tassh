@@ -13,7 +13,7 @@ Four phases deliver a working clipboard bridge. Phase 1 establishes the shared p
 Decimal phases appear between their surrounding integers in numeric order.
 
 - [x] **Phase 1: Foundation** - Binary scaffold with clap subcommands, wire protocol types, and framing logic (completed 2026-02-27)
-- [ ] **Phase 2: Transport** - TCP sender and receiver with reconnect and length-prefixed framing
+- [x] **Phase 2: Transport** - TCP sender and receiver with reconnect and length-prefixed framing (completed 2026-02-27)
 - [ ] **Phase 3: Display and Clipboard** - Xvfb lifecycle management, local clipboard reading, remote clipboard writing
 - [ ] **Phase 4: Integration and Packaging** - Full pipeline wiring, systemd service units, shell snippet, E2E validation
 
@@ -41,7 +41,7 @@ Plans:
   2. Killing the remote process and restarting it causes the local sender to reconnect without manual intervention
   3. TCP keepalive and write timeouts are configured so a silently dropped connection is detected within a reasonable window
   4. Partial write and partial read are handled correctly — `write_all` and `read_exact` used throughout
-**Plans:** 1 plan
+**Plans:** 1/1 plans complete
 Plans:
 - [x] 02-01-PLAN.md — TCP transport with server/client, keepalive, reconnect, and loopback integration test
 
@@ -77,6 +77,6 @@ Phases execute in numeric order: 1 → 2 → 3 → 4
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Foundation | 1/1 | Complete   | 2026-02-27 |
-| 2. Transport | 1/1 | Complete | 2026-02-27 |
+| 2. Transport | 1/1 | Complete    | 2026-02-27 |
 | 3. Display and Clipboard | 0/? | Not started | - |
 | 4. Integration and Packaging | 0/? | Not started | - |
