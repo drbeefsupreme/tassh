@@ -86,11 +86,16 @@ fn tassh_remote_unit(bind: &str, port: u16) -> String {
 // Shell snippet
 // ---------------------------------------------------------------------------
 
-fn shell_snippet() -> &'static str {
-    "# tassh: auto-export DISPLAY in SSH sessions\n\
-     if [ -n \"$SSH_CONNECTION\" ] && [ -f \"$HOME/.tassh/display\" ]; then\n\
-         . \"$HOME/.tassh/display\"\n\
-     fi"
+fn shell_snippet_command(shell: &str) -> String {
+    format!(
+        r#"cat >> ~/{shell} << 'EOF'
+
+# tassh: auto-export DISPLAY in SSH sessions
+if [ -n "$SSH_CONNECTION" ] && [ -f "$HOME/.tassh/display" ]; then
+    . "$HOME/.tassh/display"
+fi
+EOF"#
+    )
 }
 
 // ---------------------------------------------------------------------------
@@ -153,9 +158,13 @@ fn run_setup(service_name: &str, unit_content: &str) -> anyhow::Result<()> {
     }
 
     println!();
-    println!("Add the following snippet to your shell profile (~/.bashrc or ~/.zshrc):");
+    println!("Run one of these to add the DISPLAY snippet to your shell profile:");
     println!();
-    println!("{}", shell_snippet());
+    println!("# For zsh:");
+    println!("{}", shell_snippet_command(".zshrc"));
+    println!();
+    println!("# For bash:");
+    println!("{}", shell_snippet_command(".bashrc"));
     println!();
     println!(
         "To follow logs: journalctl --user -u {} -f",

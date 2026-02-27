@@ -48,13 +48,26 @@ tassh setup remote --bind <tailscale-ip-of-remote>
 
 This creates systemd user services that start automatically and persist across reboots.
 
-Add the printed shell snippet to your `~/.bashrc` or `~/.zshrc` on the remote:
+Add the DISPLAY snippet to your shell profile on the remote:
 
 ```bash
+# For zsh:
+cat >> ~/.zshrc << 'EOF'
+
 # tassh: auto-export DISPLAY in SSH sessions
 if [ -n "$SSH_CONNECTION" ] && [ -f "$HOME/.tassh/display" ]; then
     . "$HOME/.tassh/display"
 fi
+EOF
+
+# For bash:
+cat >> ~/.bashrc << 'EOF'
+
+# tassh: auto-export DISPLAY in SSH sessions
+if [ -n "$SSH_CONNECTION" ] && [ -f "$HOME/.tassh/display" ]; then
+    . "$HOME/.tassh/display"
+fi
+EOF
 ```
 
 Then open a **new SSH session** for it to take effect.
