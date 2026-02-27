@@ -225,6 +225,7 @@ fn tassh_daemon_unit(port: u16) -> String {
          ExecStart={exec_start}\n\
          Restart=always\n\
          RestartSec=5\n\
+         TimeoutStopSec=3\n\
          \n\
          [Install]\n\
          WantedBy=default.target\n"

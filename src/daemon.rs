@@ -116,11 +116,15 @@ pub async fn run_daemon(port: u16) -> anyhow::Result<()> {
         }
     }
 
-    // Cleanup
+    // Cleanup - abort tasks and shutdown with timeout
     clipboard_handle.abort();
     broadcast_handle.abort();
     tcp_handle.abort();
-    display_mgr.shutdown().await;
+
+    // Timeout display shutdown to prevent hang on SIGTERM
+    if tokio::time::timeout(Duration::from_secs(2), display_mgr.shutdown()).await.is_err() {
+        warn!("display shutdown timed out, forcing exit");
+    }
     let _ = std::fs::remove_file(&sock_path);
 
     Ok(())
