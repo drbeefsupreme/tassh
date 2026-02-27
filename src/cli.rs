@@ -10,11 +10,15 @@ pub struct Cli {
 
 #[derive(Debug, Subcommand)]
 pub enum Commands {
-    /// Run as local daemon (watches clipboard, sends frames)
+    /// Run as local daemon (watches clipboard, sends frames) [DEPRECATED: use `daemon`]
     Local(LocalArgs),
-    /// Run as remote daemon (receives frames, writes clipboard)
+    /// Run as remote daemon (receives frames, writes clipboard) [DEPRECATED: use `daemon`]
     Remote(RemoteArgs),
-    /// Show daemon status
+    /// Run unified daemon (auto-connects on SSH, replaces local/remote)
+    Daemon(DaemonArgs),
+    /// Notify daemon of SSH connection (called by LocalCommand, fast fire-and-forget)
+    Notify(NotifyArgs),
+    /// Show daemon status and active peer connections
     Status,
     /// Install and configure tassh as a systemd user service
     Setup {
@@ -48,12 +52,36 @@ pub struct RemoteArgs {
     pub bind: Option<String>,
 }
 
+#[derive(Debug, Parser)]
+pub struct DaemonArgs {
+    /// Port for TCP connections (both listening and outbound)
+    #[arg(long, env = "TASSH_PORT", default_value = "9877")]
+    pub port: u16,
+}
+
+#[derive(Debug, Parser)]
+pub struct NotifyArgs {
+    /// Remote hostname (from SSH %h token)
+    #[arg(long)]
+    pub host: String,
+
+    /// SSH port (from SSH %p token)
+    #[arg(long, default_value = "22")]
+    pub port: u16,
+
+    /// PID of the SSH process (from $PPID in LocalCommand)
+    #[arg(long)]
+    pub ssh_pid: u32,
+}
+
 #[derive(Debug, Subcommand)]
 pub enum SetupTarget {
-    /// Set up tassh-local.service on this machine (clipboard watcher)
+    /// Set up tassh-local.service on this machine (clipboard watcher) [DEPRECATED: use `daemon`]
     Local(SetupLocalArgs),
-    /// Set up tassh-remote.service on this machine (clipboard receiver)
+    /// Set up tassh-remote.service on this machine (clipboard receiver) [DEPRECATED: use `daemon`]
     Remote(SetupRemoteArgs),
+    /// Set up tassh-daemon.service and SSH config (recommended)
+    Daemon(SetupDaemonArgs),
 }
 
 #[derive(Debug, Parser)]
@@ -74,6 +102,13 @@ pub struct SetupRemoteArgs {
     pub bind: String,
 
     /// Port to listen on
+    #[arg(long, default_value = "9877")]
+    pub port: u16,
+}
+
+#[derive(Debug, Parser)]
+pub struct SetupDaemonArgs {
+    /// Port for daemon TCP connections
     #[arg(long, default_value = "9877")]
     pub port: u16,
 }
