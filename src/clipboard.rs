@@ -6,8 +6,6 @@
 //!   the correct subprocess for the detected display environment.
 //! - [`check_clipboard_tools`] — called at daemon startup to verify required tools are present.
 
-#![allow(dead_code)]
-
 use std::io::Cursor;
 
 use anyhow::anyhow;
@@ -15,7 +13,7 @@ use image::{ImageFormat, RgbaImage};
 use sha2::{Digest, Sha256};
 use tokio::io::AsyncWriteExt;
 
-use crate::protocol::DisplayEnvironment;
+use crate::protocol::{DisplayEnvironment, Frame};
 
 // ---------------------------------------------------------------------------
 // Local side: watch_clipboard
@@ -34,7 +32,7 @@ use crate::protocol::DisplayEnvironment;
 ///
 /// Returns immediately if no display server is found (`WAYLAND_DISPLAY` and `DISPLAY` are
 /// both unset/empty) or if the clipboard backend fails to initialise.
-pub async fn watch_clipboard(tx: tokio::sync::mpsc::Sender<Vec<u8>>) -> anyhow::Result<()> {
+pub async fn watch_clipboard(tx: tokio::sync::mpsc::Sender<Frame>) -> anyhow::Result<()> {
     // --- Display auto-detection (CLRD-04) ---
     if let Ok(wd) = std::env::var("WAYLAND_DISPLAY") {
         if !wd.is_empty() {
@@ -101,8 +99,8 @@ pub async fn watch_clipboard(tx: tokio::sync::mpsc::Sender<Vec<u8>>) -> anyhow::
                                 "clipboard image captured ({} KB), sending",
                                 kb
                             );
-                            // Use blocking_send since we're in a blocking thread.
-                            if tx.blocking_send(png_bytes).is_err() {
+                            // Wrap in Frame and send over the channel (blocking, since we're in a blocking thread).
+                            if tx.blocking_send(Frame::new_png(png_bytes)).is_err() {
                                 // Receiver dropped — caller shut down, exit cleanly.
                                 tracing::debug!("clipboard: tx closed, stopping watch loop");
                                 return Ok::<(), anyhow::Error>(());
