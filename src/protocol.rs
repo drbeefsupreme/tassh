@@ -1,6 +1,6 @@
 //! Wire protocol framing types.
 
-/// Magic bytes that identify a cssh frame.
+/// Magic bytes that identify a tassh frame.
 /// 0xC5 is non-ASCII (prevents confusion with text), 0x53 is 'S'.
 pub const MAGIC: [u8; 2] = [0xC5, 0x53];
 

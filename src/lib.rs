@@ -1,4 +1,4 @@
-//! cssh library crate — re-exports modules for integration testing.
+//! tassh library crate — re-exports modules for integration testing.
 pub mod cli;
 pub mod clipboard;
 pub mod display;

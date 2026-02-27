@@ -4,8 +4,8 @@
 //! TCP connection, without going through the higher-level `server()` / `client()`
 //! functions that introduce reconnect loops and long-lived tasks.
 
-use cssh::protocol::{Frame, FRAME_TYPE_PNG};
-use cssh::transport::{recv_frame, send_frame};
+use tassh::protocol::{Frame, FRAME_TYPE_PNG};
+use tassh::transport::{recv_frame, send_frame};
 use tokio::net::{TcpListener, TcpStream};
 
 /// Verify that a PNG frame sent over a TCP loopback connection arrives with

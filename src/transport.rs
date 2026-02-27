@@ -22,7 +22,7 @@ use tracing::{info, warn};
 use crate::clipboard::ClipboardWriter;
 use crate::protocol::{DisplayEnvironment, Frame, FrameError};
 
-/// Header length for a cssh frame: 2 magic + 1 version + 1 type + 4 length.
+/// Header length for a tassh frame: 2 magic + 1 version + 1 type + 4 length.
 const HEADER_LEN: usize = 8;
 
 /// Errors that can arise in the transport layer.

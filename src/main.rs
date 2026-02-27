@@ -55,7 +55,7 @@ async fn main() {
             let bind_addr = args.bind.as_deref().unwrap_or("auto").to_owned();
 
             // Always force Xvfb so SSH sessions can read the clipboard via
-            // ~/.cssh/display, even on machines with a Wayland/X11 desktop.
+            // ~/.tassh/display, even on machines with a Wayland/X11 desktop.
             let display_mgr = match display::DisplayManager::detect_and_init(true).await {
                 Ok(m) => m,
                 Err(e) => {
@@ -98,7 +98,7 @@ async fn main() {
                 }
             }
 
-            // Shutdown: kill Xvfb (if any) and remove ~/.cssh/display.
+            // Shutdown: kill Xvfb (if any) and remove ~/.tassh/display.
             display_mgr.shutdown().await;
         }
         Commands::Status => {

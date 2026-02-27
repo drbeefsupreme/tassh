@@ -1,4 +1,4 @@
-//! cssh setup — generates systemd user service unit files and orchestrates systemctl.
+//! tassh setup — generates systemd user service unit files and orchestrates systemctl.
 
 use std::path::PathBuf;
 use std::process::Command;
@@ -16,7 +16,7 @@ fn home_dir() -> PathBuf {
 }
 
 fn binary_path() -> PathBuf {
-    home_dir().join(".cargo/bin/cssh")
+    home_dir().join(".cargo/bin/tassh")
 }
 
 fn unit_dir() -> PathBuf {
@@ -27,7 +27,7 @@ fn unit_dir() -> PathBuf {
 // Unit file generators
 // ---------------------------------------------------------------------------
 
-fn cssh_local_unit(remote: &str, port: u16) -> String {
+fn tassh_local_unit(remote: &str, port: u16) -> String {
     let bin = binary_path();
     // If remote already contains a colon it may be host:port — split and use those values.
     let exec_start = if let Some(colon) = remote.rfind(':') {
@@ -50,7 +50,7 @@ fn cssh_local_unit(remote: &str, port: u16) -> String {
 
     format!(
         "[Unit]\n\
-         Description=cssh local clipboard relay\n\
+         Description=tassh local clipboard relay\n\
          After=network.target\n\
          \n\
          [Service]\n\
@@ -63,13 +63,13 @@ fn cssh_local_unit(remote: &str, port: u16) -> String {
     )
 }
 
-fn cssh_remote_unit(bind: &str, port: u16) -> String {
+fn tassh_remote_unit(bind: &str, port: u16) -> String {
     let bin = binary_path();
     let exec_start = format!("{} remote --bind {} --port {}", bin.display(), bind, port);
 
     format!(
         "[Unit]\n\
-         Description=cssh remote clipboard relay\n\
+         Description=tassh remote clipboard relay\n\
          After=network.target\n\
          \n\
          [Service]\n\
@@ -87,9 +87,9 @@ fn cssh_remote_unit(bind: &str, port: u16) -> String {
 // ---------------------------------------------------------------------------
 
 fn shell_snippet() -> &'static str {
-    "# cssh: auto-export DISPLAY in SSH sessions\n\
-     if [ -n \"$SSH_CONNECTION\" ] && [ -f \"$HOME/.cssh/display\" ]; then\n\
-         . \"$HOME/.cssh/display\"\n\
+    "# tassh: auto-export DISPLAY in SSH sessions\n\
+     if [ -n \"$SSH_CONNECTION\" ] && [ -f \"$HOME/.tassh/display\" ]; then\n\
+         . \"$HOME/.tassh/display\"\n\
      fi"
 }
 
@@ -169,7 +169,7 @@ fn run_setup(service_name: &str, unit_content: &str) -> anyhow::Result<()> {
 // Public entry points
 // ---------------------------------------------------------------------------
 
-/// Install cssh-local.service (clipboard watcher → sends frames to remote).
+/// Install tassh-local.service (clipboard watcher → sends frames to remote).
 pub fn run_setup_local(args: &SetupLocalArgs) -> anyhow::Result<()> {
     let bin = binary_path();
     if !bin.exists() {
@@ -179,12 +179,12 @@ pub fn run_setup_local(args: &SetupLocalArgs) -> anyhow::Result<()> {
         );
     }
     run_setup(
-        "cssh-local.service",
-        &cssh_local_unit(&args.remote, args.port),
+        "tassh-local.service",
+        &tassh_local_unit(&args.remote, args.port),
     )
 }
 
-/// Install cssh-remote.service (receives frames → writes clipboard).
+/// Install tassh-remote.service (receives frames → writes clipboard).
 pub fn run_setup_remote(args: &SetupRemoteArgs) -> anyhow::Result<()> {
     let bin = binary_path();
     if !bin.exists() {
@@ -194,7 +194,7 @@ pub fn run_setup_remote(args: &SetupRemoteArgs) -> anyhow::Result<()> {
         );
     }
     run_setup(
-        "cssh-remote.service",
-        &cssh_remote_unit(&args.bind, args.port),
+        "tassh-remote.service",
+        &tassh_remote_unit(&args.bind, args.port),
     )
 }

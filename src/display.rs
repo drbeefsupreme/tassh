@@ -2,7 +2,7 @@
 //!
 //! [`DisplayManager::detect_and_init`] detects the current display environment and,
 //! if running headless, spawns Xvfb and publishes the chosen display string to
-//! `~/.cssh/display` for SSH sessions that source it.
+//! `~/.tassh/display` for SSH sessions that source it.
 
 #![allow(dead_code)]
 
@@ -34,11 +34,11 @@ impl DisplayManager {
     /// Detection order (when `force_xvfb` is false):
     /// 1. `$WAYLAND_DISPLAY` set and non-empty → [`DisplayEnvironment::Wayland`]
     /// 2. `$DISPLAY` set and non-empty → [`DisplayEnvironment::X11`]
-    /// 3. Neither → headless path: clean stale locks, spawn Xvfb, publish `~/.cssh/display`
+    /// 3. Neither → headless path: clean stale locks, spawn Xvfb, publish `~/.tassh/display`
     ///
     /// When `force_xvfb` is true, skip Wayland/X11 detection and always spawn Xvfb.
-    /// This is used by `cssh remote` so that SSH sessions can read the clipboard
-    /// via the published `~/.cssh/display` file, even on machines with a desktop session.
+    /// This is used by `tassh remote` so that SSH sessions can read the clipboard
+    /// via the published `~/.tassh/display` file, even on machines with a desktop session.
     pub async fn detect_and_init(force_xvfb: bool) -> anyhow::Result<Self> {
         if !force_xvfb {
             // 1. Try Wayland
@@ -85,10 +85,10 @@ impl DisplayManager {
         }
         tracing::info!("Xvfb spawned on display {}", display_str);
 
-        // Publish to ~/.cssh/display
+        // Publish to ~/.tassh/display
         publish_display(&display_str)
             .await
-            .context("failed to write ~/.cssh/display")?;
+            .context("failed to write ~/.tassh/display")?;
 
         let child_handle = Arc::new(Mutex::new(Some(child)));
         let child_for_monitor = Arc::clone(&child_handle);
@@ -106,7 +106,7 @@ impl DisplayManager {
         })
     }
 
-    /// Shut down cleanly: kill Xvfb (if running) and remove `~/.cssh/display`.
+    /// Shut down cleanly: kill Xvfb (if running) and remove `~/.tassh/display`.
     pub async fn shutdown(self) {
         if let Some(child_handle) = self.xvfb_child {
             let mut guard = child_handle.lock().await;
@@ -234,7 +234,7 @@ async fn clean_stale_xvfb_locks() {
     }
 }
 
-/// Write `export DISPLAY={display_str}\n` to `~/.cssh/display`, creating the directory if needed.
+/// Write `export DISPLAY={display_str}\n` to `~/.tassh/display`, creating the directory if needed.
 async fn publish_display(display_str: &str) -> anyhow::Result<()> {
     let path = display_file_path();
     if let Some(parent) = path.parent() {
@@ -250,10 +250,10 @@ async fn publish_display(display_str: &str) -> anyhow::Result<()> {
     Ok(())
 }
 
-/// Returns the path `$HOME/.cssh/display`, falling back to `/root` if `$HOME` is unset.
+/// Returns the path `$HOME/.tassh/display`, falling back to `/root` if `$HOME` is unset.
 fn display_file_path() -> std::path::PathBuf {
     let home = std::env::var("HOME").unwrap_or_else(|_| "/root".to_string());
-    std::path::PathBuf::from(home).join(".cssh").join("display")
+    std::path::PathBuf::from(home).join(".tassh").join("display")
 }
 
 /// Background task that monitors Xvfb and auto-restarts it on unexpected exit.
