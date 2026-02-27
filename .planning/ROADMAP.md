@@ -55,7 +55,11 @@ Plans:
   3. On a local machine with a screenshot on the clipboard, the local clipboard watcher emits the image bytes (verified via log output) without polling the clipboard when it has not changed
   4. Stale Xvfb lock files from a previous crash do not prevent the remote daemon from starting cleanly
   5. Local auto-detects Wayland vs X11 and uses the correct clipboard reading path without manual configuration
-**Plans**: TBD
+**Plans:** 3 plans
+Plans:
+- [ ] 03-01-PLAN.md — Add Phase 3 dependencies and implement DisplayManager (Xvfb lifecycle, stale lock cleanup, display file)
+- [ ] 03-02-PLAN.md — Implement clipboard reading (local arboard watcher) and clipboard writing (remote xclip/wl-copy subprocess dispatch)
+- [ ] 03-03-PLAN.md — Wire display and clipboard into daemon main loop with SIGTERM/Ctrl-C clean shutdown
 
 ### Phase 4: Integration and Packaging
 **Goal**: Taking a screenshot on the local machine and pressing Ctrl-V inside Claude Code, Codex, or OpenCode on the remote SSH session shows the image — both daemons run as systemd user services
@@ -78,5 +82,14 @@ Phases execute in numeric order: 1 → 2 → 3 → 4
 |-------|----------------|--------|-----------|
 | 1. Foundation | 1/1 | Complete   | 2026-02-27 |
 | 2. Transport | 1/1 | Complete    | 2026-02-27 |
-| 3. Display and Clipboard | 0/? | Not started | - |
+| 3. Display and Clipboard | 0/3 | In progress | - |
 | 4. Integration and Packaging | 0/? | Not started | - |
+
+### Phase 5: Peer-to-peer mesh with Tailscale auto-discovery and SSH-triggered activation
+
+**Goal:** [To be planned]
+**Depends on:** Phase 4
+**Plans:** 0 plans
+
+Plans:
+- [ ] TBD (run /gsd:plan-phase 5 to break down)
