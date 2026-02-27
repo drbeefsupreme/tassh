@@ -1,16 +1,16 @@
 # tassh
 
-Paste screenshots into remote SSH terminals. Take a screenshot on your local machine, press Ctrl-V in Claude Code, Codex, or OpenCode on a remote server, and the image appears.
+A PNG clipboard bridge for [Tailscale](https://tailscale.com/). Take a screenshot on your local machine and paste it into any application on a remote server over SSH.
+
+Useful for pasting screenshots into AI coding tools like Claude Code, Codex, and OpenCode running on remote machines, or any workflow where you need clipboard images available over SSH.
 
 ## How it works
-
-`tassh` is a clipboard bridge that runs over [Tailscale](https://tailscale.com/):
 
 1. **Local daemon** (`tassh local`) watches your clipboard for new screenshots
 2. When a screenshot is detected, it sends the PNG over TCP to the remote
 3. **Remote daemon** (`tassh remote`) receives the image and writes it to an X11 clipboard (via Xvfb)
 4. SSH sessions source `~/.tassh/display` to access that clipboard
-5. Ctrl-V in your terminal tool reads the image from the clipboard
+5. Ctrl-V in any application reads the image from the clipboard
 
 ```
 [Screenshot] → tassh local → TCP/Tailscale → tassh remote → Xvfb clipboard → Ctrl-V
@@ -76,8 +76,7 @@ Then open a **new SSH session** for it to take effect.
 
 1. Take a screenshot on your local machine (Flameshot, PrtScn, Snipping Tool, etc.)
 2. SSH into the remote machine
-3. Open Claude Code, Codex, or OpenCode
-4. Press Ctrl-V -- the screenshot appears
+3. Press Ctrl-V in any application -- the screenshot appears
 
 ## Troubleshooting
 
