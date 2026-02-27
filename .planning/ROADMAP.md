@@ -28,7 +28,9 @@ Decimal phases appear between their surrounding integers in numeric order.
   2. `Frame` struct and `DisplayEnvironment` enum are defined and usable from both subcommand modules
   3. A length-prefixed PNG frame can be written and read back with byte-perfect fidelity in a unit test
   4. `cargo build` and `cargo test` pass with no warnings
-**Plans**: TBD
+**Plans:** 1 plan
+Plans:
+- [ ] 01-01-PLAN.md — Scaffold Cargo project with CLI subcommands and implement wire protocol framing with tests
 
 ### Phase 2: Transport
 **Goal**: Arbitrary byte frames reliably traverse a TCP connection from local to remote, with automatic reconnection on failure
@@ -72,7 +74,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Foundation | 0/? | Not started | - |
+| 1. Foundation | 0/1 | Planned | - |
 | 2. Transport | 0/? | Not started | - |
 | 3. Display and Clipboard | 0/? | Not started | - |
 | 4. Integration and Packaging | 0/? | Not started | - |
