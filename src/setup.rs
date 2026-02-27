@@ -5,7 +5,7 @@ use std::process::Command;
 
 use anyhow::{bail, Context};
 
-use crate::cli::{SetupLocalArgs, SetupRemoteArgs};
+use crate::cli::{SetupDaemonArgs, SetupLocalArgs, SetupRemoteArgs};
 
 // ---------------------------------------------------------------------------
 // Path helpers
@@ -206,4 +206,128 @@ pub fn run_setup_remote(args: &SetupRemoteArgs) -> anyhow::Result<()> {
         "tassh-remote.service",
         &tassh_remote_unit(&args.bind, args.port),
     )
+}
+
+// ---------------------------------------------------------------------------
+// Daemon setup helpers
+// ---------------------------------------------------------------------------
+
+fn tassh_daemon_unit(port: u16) -> String {
+    let bin = binary_path();
+    let exec_start = format!("{} daemon --port {}", bin.display(), port);
+
+    format!(
+        "[Unit]\n\
+         Description=tassh daemon (SSH-triggered clipboard relay)\n\
+         After=network.target\n\
+         \n\
+         [Service]\n\
+         ExecStart={exec_start}\n\
+         Restart=always\n\
+         RestartSec=5\n\
+         \n\
+         [Install]\n\
+         WantedBy=default.target\n"
+    )
+}
+
+fn ssh_config_stanza() -> String {
+    r#"
+# tassh: notify daemon of SSH connections
+Host *
+    PermitLocalCommand yes
+    LocalCommand tassh notify --host %h --port %p --ssh-pid $PPID
+"#
+    .to_string()
+}
+
+/// Install tassh-daemon.service and configure SSH LocalCommand.
+pub fn run_setup_daemon(args: &SetupDaemonArgs) -> anyhow::Result<()> {
+    let bin = binary_path();
+    if !bin.exists() {
+        bail!(
+            "binary not found at {}. Run `cargo install --path .` first.",
+            bin.display()
+        );
+    }
+
+    // Write systemd unit.
+    let service_name = "tassh-daemon.service";
+    let dir = unit_dir();
+    std::fs::create_dir_all(&dir)
+        .with_context(|| format!("failed to create {}", dir.display()))?;
+
+    let unit_path = dir.join(service_name);
+    std::fs::write(&unit_path, tassh_daemon_unit(args.port))
+        .with_context(|| format!("failed to write {}", unit_path.display()))?;
+    println!("Wrote {}", unit_path.display());
+
+    run_systemctl(&["--user", "daemon-reload"])?;
+    run_systemctl(&["--user", "enable", service_name])?;
+    run_systemctl(&["--user", "start", service_name])?;
+
+    // loginctl enable-linger (warning only on failure).
+    let linger_status = Command::new("loginctl").arg("enable-linger").status();
+    match linger_status {
+        Ok(s) if s.success() => {}
+        Ok(s) => eprintln!(
+            "warning: loginctl enable-linger exited with status {} — \
+             linger may need to be enabled manually",
+            s
+        ),
+        Err(e) => eprintln!(
+            "warning: loginctl enable-linger failed: {e} — \
+             linger may need to be enabled manually"
+        ),
+    }
+
+    // Handle SSH config.
+    let ssh_config_path = home_dir().join(".ssh/config");
+
+    if ssh_config_path.exists() {
+        let content = std::fs::read_to_string(&ssh_config_path)?;
+        if content.contains("# tassh:") {
+            println!();
+            println!("SSH config already contains tassh stanza.");
+        } else if content.contains("LocalCommand") {
+            println!();
+            println!("WARNING: ~/.ssh/config already contains LocalCommand directives.");
+            println!("Please manually add the following to ~/.ssh/config:");
+            println!("{}", ssh_config_stanza());
+            println!();
+        } else {
+            // Safe to append.
+            let mut file = std::fs::OpenOptions::new()
+                .append(true)
+                .open(&ssh_config_path)?;
+            use std::io::Write;
+            writeln!(file, "{}", ssh_config_stanza())?;
+            println!("Appended LocalCommand stanza to ~/.ssh/config");
+        }
+    } else {
+        // Create new SSH config.
+        std::fs::create_dir_all(ssh_config_path.parent().unwrap())?;
+        std::fs::write(&ssh_config_path, ssh_config_stanza())?;
+        println!("Created ~/.ssh/config with LocalCommand stanza");
+    }
+
+    // Print migration instructions for existing users.
+    println!();
+    println!("If you previously used tassh-local.service or tassh-remote.service:");
+    println!("  systemctl --user disable --now tassh-local.service tassh-remote.service");
+    println!();
+
+    // Print shell snippet instructions.
+    println!("Run one of these to add the DISPLAY snippet to your shell profile:");
+    println!();
+    println!("# For zsh:");
+    println!("{}", shell_snippet_command(".zshrc"));
+    println!();
+    println!("# For bash:");
+    println!("{}", shell_snippet_command(".bashrc"));
+    println!();
+
+    println!("To follow logs: journalctl --user -u {} -f", service_name);
+
+    Ok(())
 }
