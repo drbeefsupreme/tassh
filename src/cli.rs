@@ -16,6 +16,11 @@ pub enum Commands {
     Remote(RemoteArgs),
     /// Show daemon status
     Status,
+    /// Install and configure cssh as a systemd user service
+    Setup {
+        #[command(subcommand)]
+        target: SetupTarget,
+    },
 }
 
 #[derive(Debug, Parser)]
@@ -41,4 +46,34 @@ pub struct RemoteArgs {
     /// If not provided, auto-detects the Tailscale IPv4 address via `tailscale ip -4`.
     #[arg(long, env = "CSSH_BIND")]
     pub bind: Option<String>,
+}
+
+#[derive(Debug, Subcommand)]
+pub enum SetupTarget {
+    /// Set up cssh-local.service on this machine (clipboard watcher)
+    Local(SetupLocalArgs),
+    /// Set up cssh-remote.service on this machine (clipboard receiver)
+    Remote(SetupRemoteArgs),
+}
+
+#[derive(Debug, Parser)]
+pub struct SetupLocalArgs {
+    /// Remote host to connect to (Tailscale IP or hostname)
+    #[arg(long)]
+    pub remote: String,
+
+    /// Port to connect on
+    #[arg(long, default_value = "9877")]
+    pub port: u16,
+}
+
+#[derive(Debug, Parser)]
+pub struct SetupRemoteArgs {
+    /// Address to bind the server to (Tailscale IP)
+    #[arg(long)]
+    pub bind: String,
+
+    /// Port to listen on
+    #[arg(long, default_value = "9877")]
+    pub port: u16,
 }

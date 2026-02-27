@@ -2,6 +2,7 @@ mod cli;
 mod clipboard;
 mod display;
 mod protocol;
+mod setup;
 mod transport;
 
 use clap::Parser;
@@ -101,6 +102,16 @@ async fn main() {
         }
         Commands::Status => {
             println!("status: not yet implemented");
+        }
+        Commands::Setup { target } => {
+            let result = match target {
+                cli::SetupTarget::Local(args) => setup::run_setup_local(&args),
+                cli::SetupTarget::Remote(args) => setup::run_setup_remote(&args),
+            };
+            if let Err(e) = result {
+                eprintln!("setup error: {e}");
+                std::process::exit(1);
+            }
         }
     }
 }
