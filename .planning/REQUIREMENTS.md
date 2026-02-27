@@ -8,7 +8,7 @@
 ### Transport
 
 - [ ] **XPRT-01**: Local daemon connects to remote daemon over TCP via Tailscale
-- [ ] **XPRT-02**: Images are framed as length-prefixed PNG payloads
+- [x] **XPRT-02**: Images are framed as length-prefixed PNG payloads
 - [ ] **XPRT-03**: Connection automatically reconnects with exponential backoff on loss
 
 ### Clipboard Reading (Local)
@@ -35,7 +35,7 @@
 
 ### CLI / Service
 
-- [ ] **SRVC-01**: Single binary with `cssh local`, `cssh remote`, `cssh status` subcommands
+- [x] **SRVC-01**: Single binary with `cssh local`, `cssh remote`, `cssh status` subcommands
 - [ ] **SRVC-02**: Systemd user service unit files for both local and remote daemons
 - [ ] **SRVC-03**: Shell snippet for .bashrc/.zshrc to auto-source DISPLAY on SSH login
 
@@ -78,7 +78,7 @@
 | Requirement | Phase | Status |
 |-------------|-------|--------|
 | XPRT-01 | Phase 2 | Pending |
-| XPRT-02 | Phase 1 | Pending |
+| XPRT-02 | Phase 1 | Complete |
 | XPRT-03 | Phase 2 | Pending |
 | CLRD-01 | Phase 3 | Pending |
 | CLRD-02 | Phase 3 | Pending |
@@ -93,7 +93,7 @@
 | DISP-02 | Phase 3 | Pending |
 | DISP-03 | Phase 3 | Pending |
 | DISP-04 | Phase 3 | Pending |
-| SRVC-01 | Phase 1 | Pending |
+| SRVC-01 | Phase 1 | Complete |
 | SRVC-02 | Phase 4 | Pending |
 | SRVC-03 | Phase 4 | Pending |
 | E2E-01 | Phase 4 | Pending |

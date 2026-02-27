@@ -12,7 +12,7 @@ Four phases deliver a working clipboard bridge. Phase 1 establishes the shared p
 
 Decimal phases appear between their surrounding integers in numeric order.
 
-- [ ] **Phase 1: Foundation** - Binary scaffold with clap subcommands, wire protocol types, and framing logic
+- [x] **Phase 1: Foundation** - Binary scaffold with clap subcommands, wire protocol types, and framing logic (completed 2026-02-27)
 - [ ] **Phase 2: Transport** - TCP sender and receiver with reconnect and length-prefixed framing
 - [ ] **Phase 3: Display and Clipboard** - Xvfb lifecycle management, local clipboard reading, remote clipboard writing
 - [ ] **Phase 4: Integration and Packaging** - Full pipeline wiring, systemd service units, shell snippet, E2E validation
@@ -28,7 +28,7 @@ Decimal phases appear between their surrounding integers in numeric order.
   2. `Frame` struct and `DisplayEnvironment` enum are defined and usable from both subcommand modules
   3. A length-prefixed PNG frame can be written and read back with byte-perfect fidelity in a unit test
   4. `cargo build` and `cargo test` pass with no warnings
-**Plans:** 1 plan
+**Plans:** 1/1 plans complete
 Plans:
 - [ ] 01-01-PLAN.md — Scaffold Cargo project with CLI subcommands and implement wire protocol framing with tests
 
@@ -74,7 +74,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Foundation | 0/1 | Planned | - |
+| 1. Foundation | 1/1 | Complete   | 2026-02-27 |
 | 2. Transport | 0/? | Not started | - |
 | 3. Display and Clipboard | 0/? | Not started | - |
 | 4. Integration and Packaging | 0/? | Not started | - |

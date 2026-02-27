@@ -10,27 +10,27 @@ See: .planning/PROJECT.md (updated 2026-02-27)
 ## Current Position
 
 Phase: 1 of 4 (Foundation)
-Plan: 0 of ? in current phase
-Status: Ready to plan
-Last activity: 2026-02-27 — Roadmap created, requirements mapped to 4 phases
+Plan: 1 of ? in current phase
+Status: In progress
+Last activity: 2026-02-27 — Plan 01-01 complete: cssh scaffold + wire protocol
 
-Progress: [░░░░░░░░░░] 0%
+Progress: [█░░░░░░░░░] 10%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 0
-- Average duration: —
-- Total execution time: 0 hours
+- Total plans completed: 1
+- Average duration: 2 min
+- Total execution time: 0.03 hours
 
 **By Phase:**
 
 | Phase | Plans | Total | Avg/Plan |
 |-------|-------|-------|----------|
-| - | - | - | - |
+| 01-foundation | 1 | 2 min | 2 min |
 
 **Recent Trend:**
-- Last 5 plans: —
+- Last 5 plans: 01-01 (2 min)
 - Trend: —
 
 *Updated after each plan completion*
@@ -47,6 +47,10 @@ Recent decisions affecting current work:
 - [Init]: Use xclip/wl-copy subprocess for remote clipboard write — they handle X11 selection ownership (stay alive serving SelectionRequest events)
 - [Init]: Xvfb for headless clipboard — xclip needs a display server; Xvfb is lightweight and reliable
 - [Init]: Image-only (no text) — focused scope
+- [01-01]: Port 34782 chosen as default — high unregistered range, avoids common conflicts
+- [01-01]: MAGIC = [0xC5, 0x53] — 0xC5 is non-ASCII, 0x53 is 'S' (cssh)
+- [01-01]: Frame::to_bytes returns Result to enforce TooLarge guard on payloads > u32::MAX
+- [01-01]: #[allow(dead_code)] on protocol.rs keeps cargo build warning-free until Phase 2
 
 ### Pending Todos
 
@@ -62,5 +66,5 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-02-27
-Stopped at: Roadmap created — ready to begin planning Phase 1
+Stopped at: Completed 01-01-PLAN.md — cssh scaffold + wire protocol complete
 Resume file: None
