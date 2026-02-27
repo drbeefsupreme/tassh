@@ -36,8 +36,8 @@
 ### CLI / Service
 
 - [x] **SRVC-01**: Single binary with `cssh local`, `cssh remote`, `cssh status` subcommands
-- [ ] **SRVC-02**: Systemd user service unit files for both local and remote daemons
-- [ ] **SRVC-03**: Shell snippet for .bashrc/.zshrc to auto-source DISPLAY on SSH login
+- [x] **SRVC-02**: Systemd user service unit files for both local and remote daemons
+- [x] **SRVC-03**: Shell snippet for .bashrc/.zshrc to auto-source DISPLAY on SSH login
 
 ### End-to-End
 
@@ -94,8 +94,8 @@
 | DISP-03 | Phase 3 | Complete |
 | DISP-04 | Phase 3 | Complete |
 | SRVC-01 | Phase 1 | Complete |
-| SRVC-02 | Phase 4 | Pending |
-| SRVC-03 | Phase 4 | Pending |
+| SRVC-02 | Phase 4 | Complete |
+| SRVC-03 | Phase 4 | Complete |
 | E2E-01 | Phase 4 | Pending |
 | E2E-02 | Phase 4 | Pending |
 | E2E-03 | Phase 4 | Pending |

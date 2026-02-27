@@ -71,7 +71,7 @@ Plans:
   3. Ctrl-V in OpenCode on the remote shows the screenshot image
   4. `systemctl --user start cssh-local` and `systemctl --user start cssh-remote` start both daemons and they survive across reboots
   5. Adding the provided shell snippet to `.bashrc` on the remote causes `$DISPLAY` to be set automatically in new SSH sessions
-**Plans:** 2 plans
+**Plans:** 1/2 plans executed
 
 Plans:
 - [ ] 04-01-PLAN.md — Add `cssh setup` subcommand with systemd unit file generation, service orchestration, and shell snippet
@@ -87,7 +87,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4
 | 1. Foundation | 1/1 | Complete   | 2026-02-27 |
 | 2. Transport | 1/1 | Complete    | 2026-02-27 |
 | 3. Display and Clipboard | 3/3 | Complete    | 2026-02-27 |
-| 4. Integration and Packaging | 0/? | Not started | - |
+| 4. Integration and Packaging | 1/2 | In Progress|  |
 
 ### Phase 5: Peer-to-peer mesh with Tailscale auto-discovery and SSH-triggered activation
 

@@ -5,16 +5,16 @@
 See: .planning/PROJECT.md (updated 2026-02-27)
 
 **Core value:** Ctrl-V on the remote machine pastes the local screenshot into the CLI tool — no extra steps, no file juggling
-**Current focus:** Phase 3 — Display and Clipboard
+**Current focus:** Phase 4 — Integration and Packaging
 
 ## Current Position
 
-Phase: 3 of 4 (Display and Clipboard)
-Plan: 3 of 3 in current phase
-Status: Phase 3 complete
-Last activity: 2026-02-27 — Plan 03-03 complete: DisplayManager + clipboard wiring into daemon main loop; SIGTERM/Ctrl-C clean shutdown; cargo build + all tests pass
+Phase: 4 of 4 (Integration and Packaging)
+Plan: 1 of 1 in current phase
+Status: Phase 4 complete
+Last activity: 2026-02-27 — Plan 04-01 complete: cssh setup local/remote subcommand; systemd unit file generation; systemctl orchestration; shell snippet output
 
-Progress: [█████░░░░░] 50%
+Progress: [██████████] 100%
 
 ## Performance Metrics
 
@@ -30,9 +30,10 @@ Progress: [█████░░░░░] 50%
 | 01-foundation | 1 | 2 min | 2 min |
 | 02-transport | 1 | 3 min | 3 min |
 | 03-display-and-clipboard | 3 | 6 min | 2 min |
+| 04-integration-and-packaging | 1 | 3 min | 3 min |
 
 **Recent Trend:**
-- Last 5 plans: 01-01 (2 min), 02-01 (3 min), 03-01 (2 min), 03-02 (2 min), 03-03 (2 min)
+- Last 5 plans: 01-01 (2 min), 02-01 (3 min), 03-01 (2 min), 03-02 (2 min), 03-03 (2 min), 04-01 (3 min)
 - Trend: stable
 
 *Updated after each plan completion*
@@ -69,6 +70,10 @@ Recent decisions affecting current work:
 - [Phase 03-03]: watch_clipboard() signature changed to Sender<Frame> (Option A) — simpler than a converter task
 - [Phase 03-03]: ClipboardWriter created per-connection in server() — each connection gets fresh writer state
 - [Phase 03-03]: display_mgr.env is Copy so passes cleanly to server() without consuming display_mgr for shutdown
+- [04-01]: loginctl enable-linger failure is a warning not a fatal error — linger may need elevated privileges
+- [04-01]: Binary path hardcoded to ~/.cargo/bin/cssh — matches cargo install --path . default install location
+- [04-01]: Shell snippet uses POSIX sh syntax (. not source) for bash and zsh compatibility
+- [04-01]: pub mod cli added to lib.rs alongside pub mod setup to enable integration test access to CLI types
 
 ### Pending Todos
 
@@ -88,5 +93,5 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-02-27
-Stopped at: Completed 03-03-PLAN.md — Phase 3 complete: display + clipboard + main loop wiring done
+Stopped at: Completed 04-01-PLAN.md — Phase 4 complete: cssh setup subcommand, systemd service generation, systemctl orchestration, shell snippet
 Resume file: None
