@@ -45,6 +45,24 @@
 - [x] **E2E-02**: User takes screenshot on local machine, Ctrl-V in Codex on remote shows the image
 - [x] **E2E-03**: User takes screenshot on local machine, Ctrl-V in OpenCode on remote shows the image
 
+## Phase 5 Requirements (SSH-Triggered Activation)
+
+### SSH Integration
+
+- [ ] **SSH-01**: LocalCommand in `~/.ssh/config` notifies daemon on SSH connect
+- [ ] **SSH-02**: Daemon probes remote host for tassh daemon when SSH connects
+- [ ] **SSH-03**: Single connection per unique remote host (regardless of SSH session count)
+- [ ] **SSH-04**: SSH process PID watched via pidfd for session lifecycle
+
+### Mesh Architecture
+
+- [ ] **MESH-01**: Unified `tassh daemon` command (replaces local/remote)
+- [ ] **MESH-02**: Unix socket IPC at `~/.tassh/daemon.sock` for notifications
+- [ ] **MESH-03**: Multi-peer clipboard broadcast (send to all connected peers)
+- [ ] **MESH-04**: `tassh notify` subcommand for fast IPC notification
+- [ ] **MESH-05**: `tassh status` shows active peer connections
+- [ ] **MESH-06**: `tassh setup daemon` generates service + SSH config
+
 ## v2 Requirements
 
 ### Transport
@@ -66,11 +84,10 @@
 | Feature | Reason |
 |---------|--------|
 | Text clipboard syncing | Only images; text clipboard already works over SSH |
-| Bidirectional sync (remote → local) | Not needed for the screenshot use case |
+| Bidirectional sync (remote -> local) | Not needed for the screenshot use case |
 | Non-Tailscale networking / custom auth | Tailscale provides encryption and identity |
 | Image display in terminal | CLI tools handle display; this tool bridges the clipboard |
 | macOS or Windows support | Both machines are Ubuntu |
-| Multiple simultaneous remote targets | Single remote is sufficient for the use case |
 | OSC 52 clipboard protocol | Text-only; doesn't support images |
 
 ## Traceability
@@ -99,12 +116,23 @@
 | E2E-01 | Phase 4 | Complete |
 | E2E-02 | Phase 4 | Complete |
 | E2E-03 | Phase 4 | Complete |
+| SSH-01 | Phase 5 | Planned |
+| SSH-02 | Phase 5 | Planned |
+| SSH-03 | Phase 5 | Planned |
+| SSH-04 | Phase 5 | Planned |
+| MESH-01 | Phase 5 | Planned |
+| MESH-02 | Phase 5 | Planned |
+| MESH-03 | Phase 5 | Planned |
+| MESH-04 | Phase 5 | Planned |
+| MESH-05 | Phase 5 | Planned |
+| MESH-06 | Phase 5 | Planned |
 
 **Coverage:**
-- v1 requirements: 22 total
-- Mapped to phases: 22
+- v1 requirements: 22 total (all complete)
+- Phase 5 requirements: 10 total (planned)
+- Mapped to phases: 32
 - Unmapped: 0
 
 ---
 *Requirements defined: 2026-02-27*
-*Last updated: 2026-02-27 after roadmap creation*
+*Last updated: 2026-02-27 after Phase 5 planning*
