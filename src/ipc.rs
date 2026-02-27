@@ -1,0 +1,137 @@
+//! IPC message types for Unix socket communication between `tassh notify` and `tassh daemon`.
+
+use serde::{Deserialize, Serialize};
+
+/// Messages sent to the daemon over the Unix socket.
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(tag = "type")]
+pub enum IpcMessage {
+    /// Sent by LocalCommand when SSH connects to a host.
+    Connect {
+        /// Remote hostname (from %h token)
+        hostname: String,
+        /// SSH port (from %p token, typically 22)
+        port: u16,
+        /// PID of the SSH process (from $PPID in LocalCommand)
+        ssh_pid: u32,
+    },
+    /// Sent by LocalCommand on SSH disconnect (optional, primary detection is via pidfd).
+    Disconnect {
+        hostname: String,
+        ssh_pid: u32,
+    },
+    /// Sent by `tassh status` CLI invocation.
+    StatusRequest,
+}
+
+/// Response to a StatusRequest.
+#[derive(Debug, Serialize, Deserialize)]
+pub struct StatusResponse {
+    pub peers: Vec<PeerInfo>,
+}
+
+/// Information about a connected peer.
+#[derive(Debug, Serialize, Deserialize)]
+pub struct PeerInfo {
+    pub hostname: String,
+    pub connected: bool,
+    pub session_count: usize,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn connect_message_round_trip() {
+        let msg = IpcMessage::Connect {
+            hostname: "myhost.example.com".to_string(),
+            port: 22,
+            ssh_pid: 12345,
+        };
+        let json = serde_json::to_string(&msg).expect("serialize failed");
+        // Verify serde tag produces {"type":"Connect",...}
+        assert!(json.contains(r#""type":"Connect""#), "json={json}");
+        assert!(json.contains(r#""hostname":"myhost.example.com""#), "json={json}");
+        assert!(json.contains(r#""port":22"#), "json={json}");
+        assert!(json.contains(r#""ssh_pid":12345"#), "json={json}");
+
+        let decoded: IpcMessage = serde_json::from_str(&json).expect("deserialize failed");
+        match decoded {
+            IpcMessage::Connect {
+                hostname,
+                port,
+                ssh_pid,
+            } => {
+                assert_eq!(hostname, "myhost.example.com");
+                assert_eq!(port, 22);
+                assert_eq!(ssh_pid, 12345);
+            }
+            other => panic!("unexpected variant: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn disconnect_message_round_trip() {
+        let msg = IpcMessage::Disconnect {
+            hostname: "peer.tailnet".to_string(),
+            ssh_pid: 99,
+        };
+        let json = serde_json::to_string(&msg).expect("serialize failed");
+        assert!(json.contains(r#""type":"Disconnect""#), "json={json}");
+
+        let decoded: IpcMessage = serde_json::from_str(&json).expect("deserialize failed");
+        match decoded {
+            IpcMessage::Disconnect { hostname, ssh_pid } => {
+                assert_eq!(hostname, "peer.tailnet");
+                assert_eq!(ssh_pid, 99);
+            }
+            other => panic!("unexpected variant: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn status_request_round_trip() {
+        let msg = IpcMessage::StatusRequest;
+        let json = serde_json::to_string(&msg).expect("serialize failed");
+        assert!(json.contains(r#""type":"StatusRequest""#), "json={json}");
+
+        let decoded: IpcMessage = serde_json::from_str(&json).expect("deserialize failed");
+        assert!(matches!(decoded, IpcMessage::StatusRequest));
+    }
+
+    #[test]
+    fn status_response_empty_peers() {
+        let resp = StatusResponse { peers: vec![] };
+        let json = serde_json::to_string(&resp).expect("serialize failed");
+        let decoded: StatusResponse = serde_json::from_str(&json).expect("deserialize failed");
+        assert!(decoded.peers.is_empty());
+    }
+
+    #[test]
+    fn status_response_with_peers() {
+        let resp = StatusResponse {
+            peers: vec![
+                PeerInfo {
+                    hostname: "alpha.tailnet".to_string(),
+                    connected: true,
+                    session_count: 2,
+                },
+                PeerInfo {
+                    hostname: "beta.tailnet".to_string(),
+                    connected: false,
+                    session_count: 0,
+                },
+            ],
+        };
+        let json = serde_json::to_string(&resp).expect("serialize failed");
+        let decoded: StatusResponse = serde_json::from_str(&json).expect("deserialize failed");
+        assert_eq!(decoded.peers.len(), 2);
+        assert_eq!(decoded.peers[0].hostname, "alpha.tailnet");
+        assert!(decoded.peers[0].connected);
+        assert_eq!(decoded.peers[0].session_count, 2);
+        assert_eq!(decoded.peers[1].hostname, "beta.tailnet");
+        assert!(!decoded.peers[1].connected);
+        assert_eq!(decoded.peers[1].session_count, 0);
+    }
+}
