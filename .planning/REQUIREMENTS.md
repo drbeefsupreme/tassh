@@ -77,34 +77,34 @@
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| XPRT-01 | — | Pending |
-| XPRT-02 | — | Pending |
-| XPRT-03 | — | Pending |
-| CLRD-01 | — | Pending |
-| CLRD-02 | — | Pending |
-| CLRD-03 | — | Pending |
-| CLRD-04 | — | Pending |
-| CLWR-01 | — | Pending |
-| CLWR-02 | — | Pending |
-| CLWR-03 | — | Pending |
-| CLWR-04 | — | Pending |
-| CLWR-05 | — | Pending |
-| DISP-01 | — | Pending |
-| DISP-02 | — | Pending |
-| DISP-03 | — | Pending |
-| DISP-04 | — | Pending |
-| SRVC-01 | — | Pending |
-| SRVC-02 | — | Pending |
-| SRVC-03 | — | Pending |
-| E2E-01 | — | Pending |
-| E2E-02 | — | Pending |
-| E2E-03 | — | Pending |
+| XPRT-01 | Phase 2 | Pending |
+| XPRT-02 | Phase 1 | Pending |
+| XPRT-03 | Phase 2 | Pending |
+| CLRD-01 | Phase 3 | Pending |
+| CLRD-02 | Phase 3 | Pending |
+| CLRD-03 | Phase 3 | Pending |
+| CLRD-04 | Phase 3 | Pending |
+| CLWR-01 | Phase 3 | Pending |
+| CLWR-02 | Phase 3 | Pending |
+| CLWR-03 | Phase 3 | Pending |
+| CLWR-04 | Phase 3 | Pending |
+| CLWR-05 | Phase 3 | Pending |
+| DISP-01 | Phase 3 | Pending |
+| DISP-02 | Phase 3 | Pending |
+| DISP-03 | Phase 3 | Pending |
+| DISP-04 | Phase 3 | Pending |
+| SRVC-01 | Phase 1 | Pending |
+| SRVC-02 | Phase 4 | Pending |
+| SRVC-03 | Phase 4 | Pending |
+| E2E-01 | Phase 4 | Pending |
+| E2E-02 | Phase 4 | Pending |
+| E2E-03 | Phase 4 | Pending |
 
 **Coverage:**
 - v1 requirements: 22 total
-- Mapped to phases: 0
-- Unmapped: 22 (roadmap pending)
+- Mapped to phases: 22
+- Unmapped: 0
 
 ---
 *Requirements defined: 2026-02-27*
-*Last updated: 2026-02-27 after initial definition*
+*Last updated: 2026-02-27 after roadmap creation*
