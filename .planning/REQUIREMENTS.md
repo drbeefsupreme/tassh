@@ -13,18 +13,18 @@
 
 ### Clipboard Reading (Local)
 
-- [ ] **CLRD-01**: Local daemon watches system clipboard for new image content
-- [ ] **CLRD-02**: Local daemon supports Wayland clipboard reading (wl-paste)
-- [ ] **CLRD-03**: Local daemon supports X11 clipboard reading (arboard/xclip)
-- [ ] **CLRD-04**: Local daemon auto-detects display environment (Wayland vs X11)
+- [x] **CLRD-01**: Local daemon watches system clipboard for new image content
+- [x] **CLRD-02**: Local daemon supports Wayland clipboard reading (wl-paste)
+- [x] **CLRD-03**: Local daemon supports X11 clipboard reading (arboard/xclip)
+- [x] **CLRD-04**: Local daemon auto-detects display environment (Wayland vs X11)
 
 ### Clipboard Writing (Remote)
 
-- [ ] **CLWR-01**: Remote daemon writes received images to system clipboard
-- [ ] **CLWR-02**: Remote daemon supports X11 clipboard writing via xclip
-- [ ] **CLWR-03**: Remote daemon supports Wayland clipboard writing via wl-copy
-- [ ] **CLWR-04**: Remote daemon auto-detects display environment at runtime
-- [ ] **CLWR-05**: Remote daemon maintains X11 selection ownership (process stays alive to serve clipboard requests)
+- [x] **CLWR-01**: Remote daemon writes received images to system clipboard
+- [x] **CLWR-02**: Remote daemon supports X11 clipboard writing via xclip
+- [x] **CLWR-03**: Remote daemon supports Wayland clipboard writing via wl-copy
+- [x] **CLWR-04**: Remote daemon auto-detects display environment at runtime
+- [x] **CLWR-05**: Remote daemon maintains X11 selection ownership (process stays alive to serve clipboard requests)
 
 ### Headless Display Management
 
@@ -80,15 +80,15 @@
 | XPRT-01 | Phase 2 | Complete |
 | XPRT-02 | Phase 1 | Complete |
 | XPRT-03 | Phase 2 | Complete |
-| CLRD-01 | Phase 3 | Pending |
-| CLRD-02 | Phase 3 | Pending |
-| CLRD-03 | Phase 3 | Pending |
-| CLRD-04 | Phase 3 | Pending |
-| CLWR-01 | Phase 3 | Pending |
-| CLWR-02 | Phase 3 | Pending |
-| CLWR-03 | Phase 3 | Pending |
-| CLWR-04 | Phase 3 | Pending |
-| CLWR-05 | Phase 3 | Pending |
+| CLRD-01 | Phase 3 | Complete |
+| CLRD-02 | Phase 3 | Complete |
+| CLRD-03 | Phase 3 | Complete |
+| CLRD-04 | Phase 3 | Complete |
+| CLWR-01 | Phase 3 | Complete |
+| CLWR-02 | Phase 3 | Complete |
+| CLWR-03 | Phase 3 | Complete |
+| CLWR-04 | Phase 3 | Complete |
+| CLWR-05 | Phase 3 | Complete |
 | DISP-01 | Phase 3 | Complete |
 | DISP-02 | Phase 3 | Complete |
 | DISP-03 | Phase 3 | Complete |

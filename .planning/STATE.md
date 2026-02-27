@@ -10,9 +10,9 @@ See: .planning/PROJECT.md (updated 2026-02-27)
 ## Current Position
 
 Phase: 3 of 4 (Display and Clipboard)
-Plan: 1 of ? in current phase
+Plan: 2 of ? in current phase
 Status: In progress
-Last activity: 2026-02-27 — Plan 03-01 complete: DisplayManager with Xvfb lifecycle, stale lock cleanup, ~/.cssh/display publishing
+Last activity: 2026-02-27 — Plan 03-02 complete: ClipboardReader (watch_clipboard) + ClipboardWriter (xclip/wl-copy subprocess) in src/clipboard.rs
 
 Progress: [███░░░░░░░] 30%
 
@@ -29,10 +29,10 @@ Progress: [███░░░░░░░] 30%
 |-------|-------|-------|----------|
 | 01-foundation | 1 | 2 min | 2 min |
 | 02-transport | 1 | 3 min | 3 min |
-| 03-display-and-clipboard | 1 | 2 min | 2 min |
+| 03-display-and-clipboard | 2 | 4 min | 2 min |
 
 **Recent Trend:**
-- Last 5 plans: 01-01 (2 min), 02-01 (3 min), 03-01 (2 min)
+- Last 5 plans: 01-01 (2 min), 02-01 (3 min), 03-01 (2 min), 03-02 (2 min)
 - Trend: stable
 
 *Updated after each plan completion*
@@ -63,6 +63,9 @@ Recent decisions affecting current work:
 - [03-01]: Arc<Mutex<Option<Child>>> for shared Xvfb child handle between main and monitor task
 - [03-01]: #[allow(dead_code)] at display.rs module level — items wired up in plans 03-02/03-03
 - [03-01]: set_var(DISPLAY) with #[allow(deprecated)] — safe at startup before tokio multi-thread spawns
+- [Phase 03-02]: arboard polling loop runs in single spawn_blocking (not per-poll) to keep !Send Clipboard on one thread
+- [Phase 03-02]: xclip/wl-copy subprocess stored without .wait() — required for X11 selection ownership persistence
+- [Phase 03-02]: startup-skip: initial clipboard hash recorded but NOT sent to avoid re-sending stale screenshot on restart
 
 ### Pending Todos
 
@@ -82,5 +85,5 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-02-27
-Stopped at: Completed 03-01-PLAN.md — DisplayManager with Xvfb lifecycle complete
+Stopped at: Completed 03-02-PLAN.md — ClipboardReader + ClipboardWriter in src/clipboard.rs complete
 Resume file: None
