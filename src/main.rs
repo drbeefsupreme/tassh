@@ -1,12 +1,20 @@
 mod cli;
 mod clipboard;
+mod daemon;
 mod display;
+mod ipc;
+mod peer;
+mod pid_watcher;
 mod protocol;
 mod setup;
 mod transport;
 
+use std::time::Duration;
+
 use clap::Parser;
 use cli::Commands;
+use tokio::io::AsyncWriteExt;
+use tokio::net::UnixStream;
 
 #[tokio::main]
 async fn main() {
@@ -101,13 +109,32 @@ async fn main() {
             // Shutdown: kill Xvfb (if any) and remove ~/.tassh/display.
             display_mgr.shutdown().await;
         }
+        Commands::Daemon(args) => {
+            if let Err(e) = daemon::run_daemon(args.port).await {
+                eprintln!("daemon error: {e}");
+                std::process::exit(1);
+            }
+        }
+        Commands::Notify(args) => {
+            // Fast fire-and-forget IPC to daemon.
+            // MUST exit quickly — LocalCommand blocks SSH session.
+            if let Err(e) = send_notify(&args).await {
+                // Log at debug level only — don't fail the SSH connection.
+                tracing::debug!("notify failed: {e}");
+            }
+            // Always exit 0 — notify failure should not break SSH.
+        }
         Commands::Status => {
-            println!("status: not yet implemented");
+            if let Err(e) = run_status().await {
+                eprintln!("status error: {e}");
+                std::process::exit(1);
+            }
         }
         Commands::Setup { target } => {
             let result = match target {
                 cli::SetupTarget::Local(args) => setup::run_setup_local(&args),
                 cli::SetupTarget::Remote(args) => setup::run_setup_remote(&args),
+                cli::SetupTarget::Daemon(args) => setup::run_setup_daemon(&args),
             };
             if let Err(e) = result {
                 eprintln!("setup error: {e}");
@@ -115,6 +142,80 @@ async fn main() {
             }
         }
     }
+}
+
+/// Send a Connect notification to the daemon via Unix socket.
+/// Returns quickly (200ms timeout) — must not block SSH session.
+async fn send_notify(args: &cli::NotifyArgs) -> anyhow::Result<()> {
+    let socket_path = daemon::socket_path();
+
+    // Short timeout — if daemon isn't running or slow, bail fast.
+    let stream = tokio::time::timeout(
+        Duration::from_millis(200),
+        UnixStream::connect(&socket_path),
+    )
+    .await??;
+
+    let msg = ipc::IpcMessage::Connect {
+        hostname: args.host.clone(),
+        port: args.port,
+        ssh_pid: args.ssh_pid,
+    };
+
+    let mut json = serde_json::to_vec(&msg)?;
+    json.push(b'\n');
+
+    // Split into owned halves so we can write.
+    let (_, mut writer) = stream.into_split();
+
+    tokio::time::timeout(Duration::from_millis(100), writer.write_all(&json)).await??;
+
+    Ok(())
+}
+
+/// Query daemon status and print peer connections.
+async fn run_status() -> anyhow::Result<()> {
+    let socket_path = daemon::socket_path();
+
+    let stream = match UnixStream::connect(&socket_path).await {
+        Ok(s) => s,
+        Err(_) => {
+            println!("daemon not running");
+            return Ok(());
+        }
+    };
+
+    let msg = ipc::IpcMessage::StatusRequest;
+    let mut json = serde_json::to_vec(&msg)?;
+    json.push(b'\n');
+
+    let (reader, mut writer) = stream.into_split();
+    writer.write_all(&json).await?;
+
+    // Read response.
+    let mut buf_reader = tokio::io::BufReader::new(reader);
+    let mut response_line = String::new();
+    tokio::io::AsyncBufReadExt::read_line(&mut buf_reader, &mut response_line).await?;
+
+    let response: ipc::StatusResponse = serde_json::from_str(&response_line)?;
+
+    if response.peers.is_empty() {
+        println!("daemon running, no active connections");
+    } else {
+        println!("Active connections:");
+        for peer in response.peers {
+            let status = if peer.connected { "connected" } else { "probing" };
+            println!(
+                "  {} -- {} ({} SSH session{})",
+                peer.hostname,
+                status,
+                peer.session_count,
+                if peer.session_count == 1 { "" } else { "s" }
+            );
+        }
+    }
+
+    Ok(())
 }
 
 /// Split a `host:port` string into its components.
