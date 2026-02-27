@@ -63,6 +63,10 @@ Recent decisions affecting current work:
 
 None yet.
 
+### Roadmap Evolution
+
+- Phase 5 added: Peer-to-peer mesh with Tailscale auto-discovery and SSH-triggered activation
+
 ### Blockers/Concerns
 
 - [Research]: arboard Wayland feature flags need verification against current docs before Phase 3
