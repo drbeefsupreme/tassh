@@ -28,10 +28,10 @@
 
 ### Headless Display Management
 
-- [ ] **DISP-01**: Remote daemon spawns Xvfb when no display server is available
-- [ ] **DISP-02**: Remote daemon cleans up stale Xvfb lock files on startup
-- [ ] **DISP-03**: Remote daemon publishes DISPLAY to ~/.cssh/display for SSH sessions
-- [ ] **DISP-04**: Remote daemon manages Xvfb lifecycle (clean shutdown on exit)
+- [x] **DISP-01**: Remote daemon spawns Xvfb when no display server is available
+- [x] **DISP-02**: Remote daemon cleans up stale Xvfb lock files on startup
+- [x] **DISP-03**: Remote daemon publishes DISPLAY to ~/.cssh/display for SSH sessions
+- [x] **DISP-04**: Remote daemon manages Xvfb lifecycle (clean shutdown on exit)
 
 ### CLI / Service
 
@@ -89,10 +89,10 @@
 | CLWR-03 | Phase 3 | Pending |
 | CLWR-04 | Phase 3 | Pending |
 | CLWR-05 | Phase 3 | Pending |
-| DISP-01 | Phase 3 | Pending |
-| DISP-02 | Phase 3 | Pending |
-| DISP-03 | Phase 3 | Pending |
-| DISP-04 | Phase 3 | Pending |
+| DISP-01 | Phase 3 | Complete |
+| DISP-02 | Phase 3 | Complete |
+| DISP-03 | Phase 3 | Complete |
+| DISP-04 | Phase 3 | Complete |
 | SRVC-01 | Phase 1 | Complete |
 | SRVC-02 | Phase 4 | Pending |
 | SRVC-03 | Phase 4 | Pending |

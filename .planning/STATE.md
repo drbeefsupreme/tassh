@@ -5,23 +5,23 @@
 See: .planning/PROJECT.md (updated 2026-02-27)
 
 **Core value:** Ctrl-V on the remote machine pastes the local screenshot into the CLI tool — no extra steps, no file juggling
-**Current focus:** Phase 2 — Transport
+**Current focus:** Phase 3 — Display and Clipboard
 
 ## Current Position
 
-Phase: 2 of 4 (Transport)
+Phase: 3 of 4 (Display and Clipboard)
 Plan: 1 of ? in current phase
 Status: In progress
-Last activity: 2026-02-27 — Plan 02-01 complete: TCP transport layer with auto-reconnect, keepalive, integration tests
+Last activity: 2026-02-27 — Plan 03-01 complete: DisplayManager with Xvfb lifecycle, stale lock cleanup, ~/.cssh/display publishing
 
-Progress: [██░░░░░░░░] 20%
+Progress: [███░░░░░░░] 30%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 2
-- Average duration: 2.5 min
-- Total execution time: 0.08 hours
+- Total plans completed: 3
+- Average duration: 2.3 min
+- Total execution time: 0.12 hours
 
 **By Phase:**
 
@@ -29,9 +29,10 @@ Progress: [██░░░░░░░░] 20%
 |-------|-------|-------|----------|
 | 01-foundation | 1 | 2 min | 2 min |
 | 02-transport | 1 | 3 min | 3 min |
+| 03-display-and-clipboard | 1 | 2 min | 2 min |
 
 **Recent Trend:**
-- Last 5 plans: 01-01 (2 min), 02-01 (3 min)
+- Last 5 plans: 01-01 (2 min), 02-01 (3 min), 03-01 (2 min)
 - Trend: stable
 
 *Updated after each plan completion*
@@ -58,6 +59,10 @@ Recent decisions affecting current work:
 - [02-01]: src/lib.rs added for dual binary+lib crate — enables integration tests to import from cssh::
 - [02-01]: Frame gets #[derive(Debug)] — required by Result::unwrap() in integration tests
 - [02-01]: rand::random::<f64>() used for jitter — rand 0.10 removed thread_rng().gen_range() API
+- [03-01]: libc::pipe() (not pipe2/O_CLOEXEC) for Xvfb -displayfd fd inheritance
+- [03-01]: Arc<Mutex<Option<Child>>> for shared Xvfb child handle between main and monitor task
+- [03-01]: #[allow(dead_code)] at display.rs module level — items wired up in plans 03-02/03-03
+- [03-01]: set_var(DISPLAY) with #[allow(deprecated)] — safe at startup before tokio multi-thread spawns
 
 ### Pending Todos
 
@@ -69,13 +74,13 @@ None yet.
 
 ### Blockers/Concerns
 
-- [Research]: arboard Wayland feature flags need verification against current docs before Phase 3
 - [Research]: xclip `-loops 0` background-fork behavior needs empirical testing on target Ubuntu
 - [Research]: wl-copy clipboard ownership lifetime (does process need to stay running?) needs testing
 - [Research]: Whether Claude Code/Codex/OpenCode use subprocess xclip or OSC 52 affects Phase 3/4 path
+- [Note]: arboard Wayland feature flag resolved — using `wayland-data-control` feature as specified in research
 
 ## Session Continuity
 
 Last session: 2026-02-27
-Stopped at: Completed 02-01-PLAN.md — TCP transport layer complete
+Stopped at: Completed 03-01-PLAN.md — DisplayManager with Xvfb lifecycle complete
 Resume file: None
