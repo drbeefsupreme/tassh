@@ -31,36 +31,44 @@ pub struct DisplayManager {
 impl DisplayManager {
     /// Detect the current display environment and initialise accordingly.
     ///
-    /// Detection order:
+    /// Detection order (when `force_xvfb` is false):
     /// 1. `$WAYLAND_DISPLAY` set and non-empty → [`DisplayEnvironment::Wayland`]
     /// 2. `$DISPLAY` set and non-empty → [`DisplayEnvironment::X11`]
     /// 3. Neither → headless path: clean stale locks, spawn Xvfb, publish `~/.cssh/display`
-    pub async fn detect_and_init() -> anyhow::Result<Self> {
-        // 1. Try Wayland
-        if let Ok(wd) = std::env::var("WAYLAND_DISPLAY") {
-            if !wd.is_empty() {
-                tracing::info!("display: Wayland ({})", wd);
-                return Ok(Self {
-                    env: DisplayEnvironment::Wayland,
-                    display_str: wd,
-                    xvfb_child: None,
-                });
+    ///
+    /// When `force_xvfb` is true, skip Wayland/X11 detection and always spawn Xvfb.
+    /// This is used by `cssh remote` so that SSH sessions can read the clipboard
+    /// via the published `~/.cssh/display` file, even on machines with a desktop session.
+    pub async fn detect_and_init(force_xvfb: bool) -> anyhow::Result<Self> {
+        if !force_xvfb {
+            // 1. Try Wayland
+            if let Ok(wd) = std::env::var("WAYLAND_DISPLAY") {
+                if !wd.is_empty() {
+                    tracing::info!("display: Wayland ({})", wd);
+                    return Ok(Self {
+                        env: DisplayEnvironment::Wayland,
+                        display_str: wd,
+                        xvfb_child: None,
+                    });
+                }
             }
-        }
-        tracing::debug!("display: WAYLAND_DISPLAY not set, checking DISPLAY");
+            tracing::debug!("display: WAYLAND_DISPLAY not set, checking DISPLAY");
 
-        // 2. Try X11
-        if let Ok(d) = std::env::var("DISPLAY") {
-            if !d.is_empty() {
-                tracing::info!("display: X11 ({})", d);
-                return Ok(Self {
-                    env: DisplayEnvironment::X11,
-                    display_str: d,
-                    xvfb_child: None,
-                });
+            // 2. Try X11
+            if let Ok(d) = std::env::var("DISPLAY") {
+                if !d.is_empty() {
+                    tracing::info!("display: X11 ({})", d);
+                    return Ok(Self {
+                        env: DisplayEnvironment::X11,
+                        display_str: d,
+                        xvfb_child: None,
+                    });
+                }
             }
+            tracing::debug!("display: DISPLAY not set, entering headless path");
+        } else {
+            tracing::info!("display: force_xvfb=true, skipping Wayland/X11 detection");
         }
-        tracing::debug!("display: DISPLAY not set, entering headless path");
 
         // 3. Headless — clean stale locks, then spawn Xvfb
         tracing::info!("display: headless, cleaning stale Xvfb lock files");

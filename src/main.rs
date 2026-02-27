@@ -54,8 +54,9 @@ async fn main() {
             // Use explicit --bind if provided; otherwise signal auto-detection.
             let bind_addr = args.bind.as_deref().unwrap_or("auto").to_owned();
 
-            // Detect and initialise the display environment (spawns Xvfb if headless).
-            let display_mgr = match display::DisplayManager::detect_and_init().await {
+            // Always force Xvfb so SSH sessions can read the clipboard via
+            // ~/.cssh/display, even on machines with a Wayland/X11 desktop.
+            let display_mgr = match display::DisplayManager::detect_and_init(true).await {
                 Ok(m) => m,
                 Err(e) => {
                     eprintln!("display init error: {e}");
