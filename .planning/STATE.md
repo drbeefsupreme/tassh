@@ -1,3 +1,16 @@
+---
+gsd_state_version: 1.0
+milestone: v1.0
+milestone_name: milestone
+status: unknown
+last_updated: "2026-02-27T21:52:02.029Z"
+progress:
+  total_phases: 5
+  completed_phases: 4
+  total_plans: 11
+  completed_plans: 9
+---
+
 # Project State
 
 ## Project Reference
@@ -10,11 +23,11 @@ See: .planning/PROJECT.md (updated 2026-02-27)
 ## Current Position
 
 Phase: 5 of 5 (Peer-to-Peer Mesh)
-Plan: 1 of 4 in current phase
-Status: Phase 5 in progress — Plan 05-01 complete; IPC types and PID watcher foundation ready
-Last activity: 2026-02-27 — Plan 05-01 complete: IpcMessage types, StatusResponse/PeerInfo, watch_pid() via async-pidfd; all 23 tests pass
+Plan: 2 of 4 in current phase
+Status: Phase 5 in progress — Plan 05-02 complete; daemon core (IPC server, peer orchestration, TCP server, clipboard broadcast) ready
+Last activity: 2026-02-27 — Plan 05-02 complete: PeerRegistry, PeerState, run_daemon(), IPC dispatch, TCP server; all 23 tests pass
 
-Progress: [██████████] (phase 5 started, 1/4 plans done)
+Progress: [██████████] (phase 5 in progress, 2/4 plans done)
 
 ## Performance Metrics
 
@@ -31,10 +44,10 @@ Progress: [██████████] (phase 5 started, 1/4 plans done)
 | 02-transport | 1 | 3 min | 3 min |
 | 03-display-and-clipboard | 3 | 6 min | 2 min |
 | 04-integration-and-packaging | 2 | ~33 min | ~16 min |
-| 05-peer-to-peer-mesh | 1 | 2 min | 2 min |
+| 05-peer-to-peer-mesh | 2 | 4 min | 2 min |
 
 **Recent Trend:**
-- Last 5 plans: 03-02 (2 min), 03-03 (2 min), 04-01 (3 min), 04-02 (~30 min), 05-01 (2 min)
+- Last 5 plans: 03-03 (2 min), 04-01 (3 min), 04-02 (~30 min), 05-01 (2 min), 05-02 (2 min)
 - Trend: stable
 
 *Updated after each plan completion*
@@ -79,6 +92,9 @@ Recent decisions affecting current work:
 - [05-01]: serde tag on IpcMessage enum produces {"type": "Connect", ...} discriminated union JSON — matches RESEARCH.md Pattern 1 and is human-readable for debugging
 - [05-01]: watch_pid returns Pin<Box<dyn Future + Send>> for ergonomic tokio::spawn without extra boxing at call site
 - [05-01]: ESRCH errno in pidfd_open maps to immediate return (process already gone), not an error
+- [Phase 05-02]: mpsc-to-broadcast bridge: watch_clipboard() mpsc channel relayed to broadcast::Sender<Arc<Frame>> for multi-peer distribution without changing Phase 3 API
+- [Phase 05-02]: Arc<Frame> in broadcast channel avoids cloning PNG payloads per subscriber — one Arc allocation, N reference increments
+- [Phase 05-02]: Single-instance daemon guard via Unix socket connect-test — simpler than PID files, no stale PID edge cases
 
 ### Pending Todos
 
@@ -98,5 +114,5 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-02-27
-Stopped at: Completed 05-01-PLAN.md — IPC types (IpcMessage, StatusResponse, PeerInfo) and watch_pid() async pidfd wrapper; 23 tests pass
+Stopped at: Completed 05-02-PLAN.md — daemon.rs (IPC server, peer orchestration, TCP server) and peer.rs (PeerRegistry, PeerState); 23 tests pass
 Resume file: None
