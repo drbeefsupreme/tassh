@@ -215,23 +215,38 @@ async fn handle_connect(
         handle_pid_exit(&hostname_for_watcher, ssh_pid, reg_clone).await;
     });
 
-    // If not already connected, probe and connect
+    // If not already connected or connecting, probe and connect
     if need_connect {
-        let reg_clone = registry.clone();
-        let hostname_for_probe = hostname_owned.clone();
-        tokio::spawn(async move {
-            if probe_remote(&hostname_for_probe, port).await {
-                info!("daemon found on {hostname_for_probe}:{port}, connecting");
-                start_peer_connection(&hostname_for_probe, port, reg_clone, clip_tx).await;
+        // Check and set connecting flag atomically
+        let should_connect = {
+            let mut reg = registry.lock().await;
+            let peer = reg.get_or_create(&hostname_owned);
+            if peer.connecting || peer.connected {
+                false
             } else {
-                debug!("no daemon on {hostname_for_probe}:{port}");
-                // Mark as probed but no daemon found
-                let mut reg = reg_clone.lock().await;
-                if let Some(peer) = reg.get_mut(&hostname_for_probe) {
-                    peer.probe_failed = true;
-                }
+                peer.connecting = true;
+                true
             }
-        });
+        };
+
+        if should_connect {
+            let reg_clone = registry.clone();
+            let hostname_for_probe = hostname_owned.clone();
+            tokio::spawn(async move {
+                if probe_remote(&hostname_for_probe, port).await {
+                    info!("daemon found on {hostname_for_probe}:{port}, connecting");
+                    start_peer_connection(&hostname_for_probe, port, reg_clone, clip_tx).await;
+                } else {
+                    debug!("no daemon on {hostname_for_probe}:{port}");
+                    // Mark as probed but no daemon found
+                    let mut reg = reg_clone.lock().await;
+                    if let Some(peer) = reg.get_mut(&hostname_for_probe) {
+                        peer.probe_failed = true;
+                        peer.connecting = false;
+                    }
+                }
+            });
+        }
     }
 }
 
@@ -303,11 +318,13 @@ async fn start_peer_connection(
             // Create close channel
             let (close_tx, mut close_rx) = mpsc::channel::<()>(1);
 
-            // Update registry
+            // Update registry - connection established
             {
                 let mut reg = registry.lock().await;
                 if let Some(peer) = reg.get_mut(hostname) {
                     peer.connected = true;
+                    peer.connecting = false;
+                    peer.probe_failed = false;
                     peer.close_tx = Some(close_tx);
                 }
             }
@@ -366,6 +383,7 @@ async fn start_peer_connection(
                 let mut reg = registry_for_cleanup.lock().await;
                 if let Some(peer) = reg.get_mut(&hostname_owned) {
                     peer.connected = false;
+                    peer.connecting = false;
                     peer.close_tx = None;
                     info!("connection to {hostname_owned} closed, marked disconnected");
                 }
@@ -373,6 +391,11 @@ async fn start_peer_connection(
         }
         Err(e) => {
             warn!("failed to connect to {addr}: {e}");
+            // Clear connecting flag on failure
+            let mut reg = registry.lock().await;
+            if let Some(peer) = reg.get_mut(hostname) {
+                peer.connecting = false;
+            }
         }
     }
 }
@@ -514,11 +537,33 @@ async fn discover_existing_ssh_sessions(
         let reg = registry.clone();
         let tx = clip_tx.clone();
         tokio::spawn(async move {
+            // Check and set connecting flag atomically
+            let should_connect = {
+                let mut r = reg.lock().await;
+                let peer = r.get_or_create(&hostname);
+                if peer.connecting || peer.connected {
+                    false
+                } else {
+                    peer.connecting = true;
+                    true
+                }
+            };
+
+            if !should_connect {
+                debug!("startup: {hostname} already connecting/connected, skipping");
+                return;
+            }
+
             if probe_remote(&hostname, port).await {
                 info!("startup: daemon found on {hostname}:{port}, connecting");
                 start_peer_connection(&hostname, port, reg, tx).await;
             } else {
                 debug!("startup: no daemon on {hostname}:{port}");
+                let mut r = reg.lock().await;
+                if let Some(peer) = r.get_mut(&hostname) {
+                    peer.probe_failed = true;
+                    peer.connecting = false;
+                }
             }
         });
     }

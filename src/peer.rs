@@ -20,6 +20,8 @@ pub struct PeerState {
     pub session_count: usize,
     /// Whether clipboard TCP connection is established and active
     pub connected: bool,
+    /// True if a connection attempt is in progress (prevents races)
+    pub connecting: bool,
     /// True if we probed and no daemon was found on remote
     pub probe_failed: bool,
     /// Set of SSH PIDs currently tracked (for dedup with ControlMaster)
@@ -46,6 +48,7 @@ impl PeerRegistry {
         self.peers.entry(hostname.to_owned()).or_insert_with(|| PeerState {
             session_count: 0,
             connected: false,
+            connecting: false,
             probe_failed: false,
             watched_pids: std::collections::HashSet::new(),
             pid_watcher_handles: Vec::new(),
