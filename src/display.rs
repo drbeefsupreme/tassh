@@ -242,7 +242,14 @@ async fn publish_display(display_str: &str) -> anyhow::Result<()> {
             .await
             .with_context(|| format!("failed to create {}", parent.display()))?;
     }
-    let content = format!("export DISPLAY={display_str}\n");
+    // Force SSH shells that source this file to use the X11 clipboard on the
+    // daemon-managed Xvfb display. Wayland vars can cause clipboard clients
+    // to pick an unavailable compositor socket inside SSH sessions.
+    let content = format!(
+        "export DISPLAY={display_str}\n\
+unset WAYLAND_DISPLAY\n\
+unset WAYLAND_SOCKET\n"
+    );
     tokio::fs::write(&path, &content)
         .await
         .with_context(|| format!("failed to write {}", path.display()))?;
