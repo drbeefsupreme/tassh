@@ -51,9 +51,16 @@ pub async fn run_daemon(port: u16) -> anyhow::Result<()> {
     // Remove stale socket from previous crash
     let _ = std::fs::remove_file(&sock_path);
 
-    // Always provision Xvfb so SSH sessions can source ~/.tassh/display and
-    // clipboard paste works consistently in remote CLI tools.
-    let display_mgr = DisplayManager::detect_and_init(true).await?;
+    // Prefer Xvfb so SSH sessions can source ~/.tassh/display and paste images
+    // consistently in remote CLI tools. Fall back to native display detection
+    // so daemon startup still succeeds on nodes without Xvfb.
+    let display_mgr = match DisplayManager::detect_and_init(true).await {
+        Ok(mgr) => mgr,
+        Err(e) => {
+            warn!("forced Xvfb init failed, falling back to native display detection: {e}");
+            DisplayManager::detect_and_init(false).await?
+        }
+    };
     info!("display initialized: {:?}", display_mgr.env);
 
     // Create peer registry and clipboard broadcast channel
