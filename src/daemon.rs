@@ -314,8 +314,7 @@ async fn handle_connect(
 
     // Check if this PID is already being watched (ControlMaster scenario)
     if peer.watched_pids.contains(&ssh_pid) {
-        debug!("pid {ssh_pid} already watched for {hostname}, incrementing session count only");
-        peer.session_count += 1;
+        debug!("pid {ssh_pid} already watched for {hostname}, ignoring duplicate notify");
         return;
     }
 
