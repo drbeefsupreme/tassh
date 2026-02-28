@@ -72,11 +72,11 @@ impl PeerRegistry {
     }
 
     /// List all peers for status command.
-    /// Only returns peers with active sessions or connections.
+    /// Only returns peers with active SSH sessions.
     pub fn list_peers(&self) -> Vec<crate::ipc::PeerInfo> {
         self.peers
             .iter()
-            .filter(|(_, state)| state.session_count > 0 || state.connected)
+            .filter(|(_, state)| state.session_count > 0)
             .map(|(hostname, state)| crate::ipc::PeerInfo {
                 hostname: hostname.clone(),
                 connected: state.connected,
@@ -91,6 +91,15 @@ impl PeerRegistry {
         self.peers
             .iter()
             .filter(|(_, state)| state.session_count > 0)
+            .map(|(hostname, _)| hostname.clone())
+            .collect()
+    }
+
+    /// List connected peers with no active SSH sessions.
+    pub fn connected_hosts_without_sessions(&self) -> Vec<String> {
+        self.peers
+            .iter()
+            .filter(|(_, state)| state.connected && state.session_count == 0)
             .map(|(hostname, _)| hostname.clone())
             .collect()
     }

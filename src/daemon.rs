@@ -214,6 +214,23 @@ async fn refresh_peer_liveness(
     port: u16,
     check_connected: bool,
 ) {
+    let idle_connected_hosts = {
+        let reg = registry.lock().await;
+        reg.connected_hosts_without_sessions()
+    };
+
+    for hostname in idle_connected_hosts {
+        info!("cleaning up idle connected peer {hostname} with zero SSH sessions");
+        let mut reg = registry.lock().await;
+        if let Some(peer) = reg.get_mut(&hostname) {
+            if let Some(close_tx) = peer.close_tx.take() {
+                drop(close_tx);
+            }
+            peer.connected = false;
+            peer.connecting = false;
+        }
+    }
+
     let hosts = {
         let reg = registry.lock().await;
         reg.hosts_with_sessions()
@@ -426,6 +443,31 @@ async fn start_peer_connection(
             // Create close channel
             let (close_tx, mut close_rx) = mpsc::channel::<()>(1);
 
+            // Update registry - only keep this connection if sessions still exist.
+            let keep_connection = {
+                let mut reg = registry.lock().await;
+                if let Some(peer) = reg.get_mut(hostname) {
+                    if peer.session_count == 0 {
+                        peer.connecting = false;
+                        peer.close_tx = None;
+                        false
+                    } else {
+                        peer.connected = true;
+                        peer.connecting = false;
+                        peer.probe_failed = false;
+                        peer.close_tx = Some(close_tx);
+                        true
+                    }
+                } else {
+                    false
+                }
+            };
+
+            if !keep_connection {
+                debug!("dropping connection to {hostname} because no active SSH sessions remain");
+                return;
+            }
+
             // Update registry - connection established
             {
                 let mut reg = registry.lock().await;
@@ -433,7 +475,7 @@ async fn start_peer_connection(
                     peer.connected = true;
                     peer.connecting = false;
                     peer.probe_failed = false;
-                    peer.close_tx = Some(close_tx);
+                    // close_tx already set above when keep_connection was computed
                 }
             }
 
