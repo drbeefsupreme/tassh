@@ -12,7 +12,7 @@ Take a screenshot on one node and paste it into apps on another node over SSH.
 2. On SSH connect, SSH `LocalCommand` runs `tassh notify` on the source node.
 3. The source daemon tracks SSH sessions and connects to destination daemon(s) automatically.
 4. Clipboard PNG frames are forwarded over TCP on the Tailscale network.
-5. Destination node writes frames into clipboard (`xclip` on X11/Xvfb, `wl-copy` on Wayland).
+5. Destination node writes frames into clipboard via `xclip` (daemon mode always starts Xvfb for reliable remote paste).
 
 ```
 [Screenshot] -> tassh daemon -> TCP/Tailscale -> tassh daemon -> remote clipboard -> Ctrl-V
@@ -24,8 +24,8 @@ Take a screenshot on one node and paste it into apps on another node over SSH.
 - [Tailscale](https://tailscale.com/) (node-to-node network path)
 - OpenSSH client/server
 - Clipboard tools:
-  - X11/headless: `xclip` (and `xvfb` for headless)
-  - Wayland: `wl-copy` (`wl-clipboard` package)
+  - `xclip` and `xvfb` (required; daemon always uses Xvfb for remote paste reliability)
+  - `wl-paste` from `wl-clipboard` (optional; used for clipboard watching if your local session uses Wayland — `wl-copy` is **not** used in the default daemon path)
 
 ## Install
 
