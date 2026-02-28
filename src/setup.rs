@@ -1,6 +1,6 @@
 //! tassh setup — generates systemd user service unit files and orchestrates systemctl.
 
-use std::io::{BufRead, Read, Seek, SeekFrom, Write};
+use std::io::{BufRead, IsTerminal, Read, Seek, SeekFrom, Write};
 use std::os::fd::AsRawFd;
 use std::path::PathBuf;
 use std::process::Command;
@@ -102,8 +102,12 @@ fn install_shell_snippets() {
 // ---------------------------------------------------------------------------
 
 /// Print a yes/no prompt and return the user's answer.
-/// Returns `default` if the input cannot be read (e.g. non-interactive stdin).
+/// Returns `false` when stdin is not a TTY (piped/redirected). Use `--yes` for non-interactive use.
 fn prompt_yes_no(question: &str, default_yes: bool) -> bool {
+    if !std::io::stdin().is_terminal() {
+        return false;
+    }
+
     let hint = if default_yes { "Y/n" } else { "y/N" };
     print!("{question} [{hint}] ");
     std::io::stdout().flush().ok();
