@@ -130,6 +130,12 @@ async fn main() {
                 std::process::exit(1);
             }
         }
+        Commands::Inject(args) => {
+            if let Err(e) = send_inject(&args).await {
+                eprintln!("inject error: {e}");
+                std::process::exit(1);
+            }
+        }
         Commands::Setup { target } => {
             let result = match target {
                 cli::SetupTarget::Local(args) => setup::run_setup_local(&args),
@@ -170,6 +176,21 @@ async fn send_notify(args: &cli::NotifyArgs) -> anyhow::Result<()> {
 
     tokio::time::timeout(Duration::from_millis(100), writer.write_all(&json)).await??;
 
+    Ok(())
+}
+
+/// Inject a PNG frame into daemon broadcast for deterministic test fan-out.
+async fn send_inject(args: &cli::InjectArgs) -> anyhow::Result<()> {
+    let socket_path = daemon::socket_path();
+    let png_bytes = tokio::fs::read(&args.png_file).await?;
+
+    let stream = UnixStream::connect(&socket_path).await?;
+    let msg = ipc::IpcMessage::InjectFrame { png_bytes };
+    let mut json = serde_json::to_vec(&msg)?;
+    json.push(b'\n');
+
+    let (_, mut writer) = stream.into_split();
+    writer.write_all(&json).await?;
     Ok(())
 }
 

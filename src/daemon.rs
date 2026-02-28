@@ -1,5 +1,6 @@
 //! Unified tassh daemon: IPC server, peer management, clipboard broadcast.
 
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
@@ -95,6 +96,23 @@ pub async fn run_daemon(port: u16) -> anyhow::Result<()> {
         discover_existing_ssh_sessions(discovery_registry, discovery_clip_tx, port).await;
     });
 
+    // Periodically retry peers that still have active SSH sessions but no daemon connection.
+    let reconcile_registry = registry.clone();
+    let reconcile_clip_tx = clip_tx.clone();
+    let reconcile_handle = tokio::spawn(async move {
+        let mut ticker = tokio::time::interval(Duration::from_secs(2));
+        loop {
+            ticker.tick().await;
+            refresh_peer_liveness(
+                reconcile_registry.clone(),
+                reconcile_clip_tx.clone(),
+                port,
+                false,
+            )
+            .await;
+        }
+    });
+
     // Handle graceful shutdown
     let mut sigterm = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())?;
 
@@ -127,6 +145,7 @@ pub async fn run_daemon(port: u16) -> anyhow::Result<()> {
     clipboard_handle.abort();
     broadcast_handle.abort();
     tcp_handle.abort();
+    reconcile_handle.abort();
 
     // Timeout display shutdown to prevent hang on SIGTERM
     if tokio::time::timeout(Duration::from_secs(2), display_mgr.shutdown()).await.is_err() {
@@ -161,12 +180,19 @@ async fn handle_ipc_connection(
             handle_disconnect(&hostname, ssh_pid, registry).await;
         }
         Ok(IpcMessage::StatusRequest) => {
+            // Refresh liveness so status does not stay "syncing" after a remote daemon exits.
+            refresh_peer_liveness(registry.clone(), clip_tx.clone(), port, true).await;
             let reg = registry.lock().await;
             let response = StatusResponse { peers: reg.list_peers() };
             drop(reg);
             let json = serde_json::to_string(&response).unwrap_or_default();
             let stream = reader.into_inner();
             let _ = write_response(stream, &json).await;
+        }
+        Ok(IpcMessage::InjectFrame { png_bytes }) => {
+            let kb = png_bytes.len() / 1024;
+            debug!("IPC: InjectFrame ({kb} KB)");
+            let _ = clip_tx.send(Arc::new(Frame::new_png(png_bytes)));
         }
         Err(e) => {
             warn!("invalid IPC message: {e}");
@@ -179,6 +205,83 @@ async fn write_response(mut stream: UnixStream, json: &str) -> std::io::Result<(
     stream.write_all(json.as_bytes()).await?;
     stream.write_all(b"\n").await?;
     Ok(())
+}
+
+/// Refresh peer liveness for active SSH sessions.
+async fn refresh_peer_liveness(
+    registry: Arc<Mutex<PeerRegistry>>,
+    clip_tx: broadcast::Sender<Arc<Frame>>,
+    port: u16,
+    check_connected: bool,
+) {
+    let hosts = {
+        let reg = registry.lock().await;
+        reg.hosts_with_sessions()
+    };
+
+    for hostname in hosts {
+        let (connected, connecting) = {
+            let reg = registry.lock().await;
+            match reg.get(&hostname) {
+                Some(peer) => (peer.connected, peer.connecting),
+                None => continue,
+            }
+        };
+
+        if connecting {
+            continue;
+        }
+
+        if connected && !check_connected {
+            continue;
+        }
+
+        if probe_remote_with_timeout(&hostname, port, Duration::from_millis(400)).await {
+            if connected {
+                continue;
+            }
+
+            let should_connect = {
+                let mut reg = registry.lock().await;
+                if let Some(peer) = reg.get_mut(&hostname) {
+                    if peer.connected || peer.connecting || peer.session_count == 0 {
+                        false
+                    } else {
+                        peer.connecting = true;
+                        peer.probe_failed = false;
+                        true
+                    }
+                } else {
+                    false
+                }
+            };
+
+            if should_connect {
+                let reg_clone = registry.clone();
+                let tx_clone = clip_tx.clone();
+                let hostname_for_connect = hostname.clone();
+                tokio::spawn(async move {
+                    info!("daemon found on {hostname_for_connect}:{port}, connecting");
+                    start_peer_connection(&hostname_for_connect, port, reg_clone, tx_clone).await;
+                });
+            }
+            continue;
+        }
+
+        let mut reg = registry.lock().await;
+        if let Some(peer) = reg.get_mut(&hostname) {
+            if connected {
+                info!("status: probe failed for {hostname}, marking disconnected");
+                // Drop sender so connection task exits promptly if still running.
+                if let Some(close_tx) = peer.close_tx.take() {
+                    drop(close_tx);
+                }
+                peer.connected = false;
+            }
+            peer.connecting = false;
+            peer.probe_failed = true;
+        }
+    }
 }
 
 /// Handle a Connect IPC message: probe remote, start connection if daemon found.
@@ -287,8 +390,13 @@ async fn handle_pid_exit(
 
 /// Probe a remote host to check if a tassh daemon is running.
 async fn probe_remote(hostname: &str, port: u16) -> bool {
+    probe_remote_with_timeout(hostname, port, Duration::from_secs(3)).await
+}
+
+/// Probe a remote host with a caller-provided timeout.
+async fn probe_remote_with_timeout(hostname: &str, port: u16, timeout: Duration) -> bool {
     match tokio::time::timeout(
-        Duration::from_secs(3),
+        timeout,
         TcpStream::connect(format!("{hostname}:{port}")),
     )
     .await
@@ -420,10 +528,12 @@ async fn run_tcp_server(
             warn!("failed to set keepalive: {e}");
         }
 
-        let (mut reader, _writer) = stream.into_split();
+        let (mut reader, writer) = stream.into_split();
         let mut clip_writer = ClipboardWriter::new(display_env);
 
         tokio::spawn(async move {
+            // Keep write half alive so connected peers do not see immediate EOF.
+            let _writer_guard = writer;
             loop {
                 match recv_frame(&mut reader).await {
                     Ok(frame) => {
@@ -467,6 +577,8 @@ async fn discover_existing_ssh_sessions(
     clip_tx: broadcast::Sender<Arc<Frame>>,
     port: u16,
 ) {
+    let self_aliases = discover_local_aliases().await;
+
     // Get list of ssh processes with their command lines
     let output = match tokio::process::Command::new("pgrep")
         .args(["-a", "ssh"])
@@ -481,47 +593,33 @@ async fn discover_existing_ssh_sessions(
     };
 
     let stdout = String::from_utf8_lossy(&output.stdout);
-    let mut hosts_to_probe: std::collections::HashSet<String> = std::collections::HashSet::new();
+    let mut hosts_to_probe: HashMap<String, HashSet<u32>> = HashMap::new();
 
     for line in stdout.lines() {
-        // Format: "PID ssh user@host" or "PID ssh host" or "PID ssh -p PORT host"
+        // Expected format: "PID ssh [options] destination [command ...]"
         let parts: Vec<&str> = line.split_whitespace().collect();
-        if parts.len() < 2 {
+        if parts.len() < 3 {
             continue;
         }
 
-        // Skip ssh processes that are agent, master socket, or other non-connection types
-        let cmd_line = parts[1..].join(" ");
-        if cmd_line.contains("-A") && !cmd_line.contains("@") {
-            // Likely ssh-agent forward only
+        let ssh_pid = match parts[0].parse::<u32>() {
+            Ok(pid) => pid,
+            Err(_) => continue,
+        };
+
+        if !is_ssh_client_command(parts[1]) {
             continue;
         }
 
-        // Find the hostname - it's usually the last argument that looks like a host
-        // Skip flags and their arguments
-        let mut skip_next = false;
-        for part in &parts[1..] {
-            if skip_next {
-                skip_next = false;
+        if let Some(hostname) = extract_ssh_destination_host(&parts[2..]) {
+            if self_aliases.contains(&hostname) {
+                debug!("startup: skipping self destination {hostname}");
                 continue;
             }
-            if part.starts_with('-') {
-                // Some flags take arguments: -p, -l, -i, -F, -o, etc.
-                if *part == "-p" || *part == "-l" || *part == "-i" || *part == "-F" || *part == "-o" {
-                    skip_next = true;
-                }
-                continue;
-            }
-            // This might be user@host or just host
-            let hostname = if let Some(at_pos) = part.find('@') {
-                &part[at_pos + 1..]
-            } else {
-                *part
-            };
-            // Basic validation - contains dot or is Tailscale hostname
-            if hostname.contains('.') || hostname.chars().all(|c| c.is_alphanumeric() || c == '-') {
-                hosts_to_probe.insert(hostname.to_owned());
-            }
+            hosts_to_probe
+                .entry(hostname)
+                .or_default()
+                .insert(ssh_pid);
         }
     }
 
@@ -530,17 +628,32 @@ async fn discover_existing_ssh_sessions(
         return;
     }
 
-    info!("found {} existing SSH sessions, probing for daemons", hosts_to_probe.len());
+    let total_sessions: usize = hosts_to_probe.values().map(|pids| pids.len()).sum();
+    info!(
+        "found {total_sessions} existing SSH sessions across {} hosts, probing for daemons",
+        hosts_to_probe.len()
+    );
 
-    // Probe each unique host
-    for hostname in hosts_to_probe {
+    // Probe each host and track discovered ssh pids for accurate session counts.
+    for (hostname, pids) in hosts_to_probe {
         let reg = registry.clone();
         let tx = clip_tx.clone();
+        let pids: Vec<u32> = pids.into_iter().collect();
         tokio::spawn(async move {
+            let mut new_pids = Vec::new();
+
             // Check and set connecting flag atomically
             let should_connect = {
                 let mut r = reg.lock().await;
                 let peer = r.get_or_create(&hostname);
+
+                for pid in &pids {
+                    if peer.watched_pids.insert(*pid) {
+                        peer.session_count += 1;
+                        new_pids.push(*pid);
+                    }
+                }
+
                 if peer.connecting || peer.connected {
                     false
                 } else {
@@ -548,6 +661,16 @@ async fn discover_existing_ssh_sessions(
                     true
                 }
             };
+
+            for ssh_pid in new_pids {
+                let reg_clone = reg.clone();
+                let hostname_for_watcher = hostname.clone();
+                tokio::spawn(async move {
+                    watch_pid(ssh_pid).await;
+                    debug!("startup ssh pid {ssh_pid} exited for {hostname_for_watcher}");
+                    handle_pid_exit(&hostname_for_watcher, ssh_pid, reg_clone).await;
+                });
+            }
 
             if !should_connect {
                 debug!("startup: {hostname} already connecting/connected, skipping");
@@ -567,4 +690,120 @@ async fn discover_existing_ssh_sessions(
             }
         });
     }
+}
+
+fn is_ssh_client_command(cmd: &str) -> bool {
+    let basename = cmd.rsplit('/').next().unwrap_or(cmd);
+    basename == "ssh"
+}
+
+fn ssh_option_takes_value(arg: &str) -> bool {
+    matches!(
+        arg,
+        "-b"
+            | "-c"
+            | "-D"
+            | "-E"
+            | "-e"
+            | "-F"
+            | "-I"
+            | "-i"
+            | "-J"
+            | "-L"
+            | "-l"
+            | "-m"
+            | "-O"
+            | "-o"
+            | "-p"
+            | "-Q"
+            | "-R"
+            | "-S"
+            | "-W"
+            | "-w"
+    )
+}
+
+fn extract_ssh_destination_host(args: &[&str]) -> Option<String> {
+    let mut idx = 0;
+    while idx < args.len() {
+        let arg = args[idx];
+        if arg == "--" {
+            idx += 1;
+            break;
+        }
+
+        if arg.starts_with('-') {
+            // Short options like -p/-o may carry an inline value (-p22, -oProxyCommand=...),
+            // in which case they don't consume the following token.
+            let short = &arg[..arg.len().min(2)];
+            let consumes_next =
+                ssh_option_takes_value(arg) || (arg.len() == 2 && ssh_option_takes_value(short));
+            idx += if consumes_next { 2 } else { 1 };
+            continue;
+        }
+
+        return normalize_ssh_host(arg);
+    }
+
+    while idx < args.len() {
+        let arg = args[idx];
+        if !arg.starts_with('-') {
+            return normalize_ssh_host(arg);
+        }
+        idx += 1;
+    }
+
+    None
+}
+
+fn normalize_ssh_host(raw: &str) -> Option<String> {
+    let unquoted = raw.trim_matches(|c| c == '\'' || c == '"');
+    let without_user = unquoted.rsplit('@').next().unwrap_or(unquoted);
+    let without_brackets = without_user
+        .strip_prefix('[')
+        .and_then(|s| s.strip_suffix(']'))
+        .unwrap_or(without_user);
+    let host = without_brackets
+        .split(':')
+        .next()
+        .unwrap_or(without_brackets)
+        .trim()
+        .to_ascii_lowercase();
+
+    if host.is_empty() || host.contains('/') {
+        return None;
+    }
+
+    if host
+        .chars()
+        .all(|c| c.is_ascii_alphanumeric() || c == '.' || c == '-')
+    {
+        Some(host)
+    } else {
+        None
+    }
+}
+
+async fn discover_local_aliases() -> HashSet<String> {
+    let mut aliases = HashSet::new();
+    aliases.insert("localhost".to_owned());
+    aliases.insert("127.0.0.1".to_owned());
+
+    if let Ok(ip) = resolve_tailscale_ip().await {
+        aliases.insert(ip.to_ascii_lowercase());
+    }
+
+    if let Ok(output) = tokio::process::Command::new("hostname").output().await {
+        let hostname = String::from_utf8_lossy(&output.stdout)
+            .trim()
+            .to_ascii_lowercase();
+        if !hostname.is_empty() {
+            aliases.insert(hostname.clone());
+            if let Some(short) = hostname.split('.').next() {
+                aliases.insert(short.to_owned());
+            }
+        }
+    }
+
+    aliases
 }

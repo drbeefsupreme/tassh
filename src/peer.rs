@@ -86,6 +86,15 @@ impl PeerRegistry {
             .collect()
     }
 
+    /// List peers that still have active SSH sessions.
+    pub fn hosts_with_sessions(&self) -> Vec<String> {
+        self.peers
+            .iter()
+            .filter(|(_, state)| state.session_count > 0)
+            .map(|(hostname, _)| hostname.clone())
+            .collect()
+    }
+
     /// Get a subscriber to the clipboard broadcast channel.
     pub fn subscribe_clipboard(&self) -> broadcast::Receiver<Arc<Frame>> {
         self.clip_tx.subscribe()

@@ -1,30 +1,31 @@
 # tassh
 
-A PNG clipboard bridge for [Tailscale](https://tailscale.com/). Take a screenshot on your local machine and paste it into any application on a remote server over SSH.
+A PNG clipboard bridge for [Tailscale](https://tailscale.com/) + SSH.
 
-Useful for pasting screenshots into AI coding tools like Claude Code, Codex, and OpenCode running on remote machines, or any workflow where you need clipboard images available over SSH.
+Take a screenshot on one node and paste it into apps on another node over SSH.
 
-## How it works
+## How it works now (automatic daemon mode)
 
-1. **Local daemon** (`tassh local`) watches your clipboard for new screenshots
-2. When a screenshot is detected, it sends the PNG over TCP to the remote
-3. **Remote daemon** (`tassh remote`) receives the image and writes it to an X11 clipboard (via Xvfb)
-4. SSH sessions source `~/.tassh/display` to access that clipboard
-5. Ctrl-V in any application reads the image from the clipboard
+`tassh` now uses a single daemon per node.
 
-```
-[Screenshot] → tassh local → TCP/Tailscale → tassh remote → Xvfb clipboard → Ctrl-V
-```
+1. `tassh daemon` runs on each node.
+2. When you start an SSH session, SSH `LocalCommand` runs `tassh notify` on the source node.
+3. The source daemon tracks SSH sessions and connects to destination daemon(s) automatically.
+4. Clipboard PNG frames are forwarded over TCP on the Tailscale network.
+5. Destination node writes frames into an X11 clipboard (Xvfb if needed) for paste.
+
+You do not need to manually run `tassh local` / `tassh remote` for normal use.
 
 ## Prerequisites
 
-- [Rust](https://rustup.rs/) (for building)
-- [Tailscale](https://tailscale.com/) (for networking between machines)
-- **Remote machine:** `xclip` and `Xvfb` (`apt install xclip xvfb`)
+- [Rust](https://rustup.rs/) (build/install)
+- [Tailscale](https://tailscale.com/) (node-to-node network path)
+- OpenSSH client/server
+- `xclip` and `xvfb` available on nodes that may receive clipboard frames
 
 ## Install
 
-On **both** machines (local and remote):
+On each node:
 
 ```bash
 git clone https://github.com/drbeefsupreme/tassh.git
@@ -32,65 +33,111 @@ cd tassh
 cargo install --path .
 ```
 
-## Setup
+## Setup (recommended)
 
-On the **local** machine (where you take screenshots):
-
-```bash
-tassh setup local --remote <tailscale-ip-of-remote>
-```
-
-On the **remote** machine (where you SSH into):
+Run on each node where you want automatic behavior:
 
 ```bash
-tassh setup remote --bind <tailscale-ip-of-remote>
+tassh setup daemon
 ```
 
-This creates systemd user services that start automatically and persist across reboots.
+`tassh setup daemon` does all of this:
 
-Add the DISPLAY snippet to your shell profile on the remote:
+- Writes `~/.config/systemd/user/tassh-daemon.service`
+- Runs:
+  - `systemctl --user daemon-reload`
+  - `systemctl --user enable tassh-daemon.service`
+  - `systemctl --user start tassh-daemon.service`
+- Tries `loginctl enable-linger` so user services survive logout
+- Adds this SSH stanza to `~/.ssh/config` (or asks you to merge manually if you already use `LocalCommand`):
 
-```bash
-# For zsh:
-cat >> ~/.zshrc << 'EOF'
-
-# tassh: auto-export DISPLAY in SSH sessions
-if [ -n "$SSH_CONNECTION" ] && [ -f "$HOME/.tassh/display" ]; then
-    . "$HOME/.tassh/display"
-fi
-EOF
-
-# For bash:
-cat >> ~/.bashrc << 'EOF'
-
-# tassh: auto-export DISPLAY in SSH sessions
-if [ -n "$SSH_CONNECTION" ] && [ -f "$HOME/.tassh/display" ]; then
-    . "$HOME/.tassh/display"
-fi
-EOF
+```sshconfig
+# tassh: notify daemon of SSH connections
+Host *
+    PermitLocalCommand yes
+    LocalCommand tassh notify --host %h --port %p --ssh-pid $PPID
 ```
 
-Then open a **new SSH session** for it to take effect.
+- Prints a shell snippet to source `~/.tassh/display` inside SSH sessions
+
+Add the display snippet to your shell profile (`~/.zshrc` or `~/.bashrc`), then open a new SSH session.
 
 ## Usage
 
-1. Take a screenshot on your local machine (Flameshot, PrtScn, Snipping Tool, etc.)
-2. SSH into the remote machine
-3. Press Ctrl-V in any application -- the screenshot appears
+1. Keep `tassh-daemon.service` running on participating nodes.
+2. Start an SSH session as usual.
+3. Take a screenshot on the source node.
+4. Paste on the destination node (`Ctrl-V`) in apps that accept image paste.
+
+Check status at any time:
+
+```bash
+tassh status
+```
+
+## Legacy commands
+
+`tassh local` and `tassh remote` still exist for compatibility, but are deprecated in favor of daemon mode.
+
+## Systemd and logs
+
+Check daemon logs:
+
+```bash
+journalctl --user -u tassh-daemon.service -f
+```
+
+If migrating from old units:
+
+```bash
+systemctl --user disable --now tassh-local.service tassh-remote.service
+```
+
+## Integration harness (Docker)
+
+The repo includes a repeatable mesh E2E harness:
+
+```bash
+tests/daemon_mesh_e2e.sh
+```
+
+Requirements:
+
+- Docker running locally
+
+What it validates:
+
+- First SSH session establishes daemon sync.
+- Second SSH session to same node increments session count without extra daemon processes or extra peer TCP connections.
+- Peer connection remains until the final SSH session exits.
+- One node syncs to multiple peer nodes simultaneously.
+- Frame fan-out reaches all connected peers.
+- If SSH starts before remote daemon, sync comes up once remote daemon starts.
+
+## CI
+
+GitHub Actions workflow:
+
+- `.github/workflows/daemon-mesh-e2e.yml`
+
+Trigger:
+
+- `pull_request` targeting `master`
+
+The workflow builds `tassh` and runs `tests/daemon_mesh_e2e.sh`.
 
 ## Troubleshooting
 
-Check service logs:
+Verify daemon socket + status:
 
 ```bash
-journalctl --user -u tassh-local -f   # on local
-journalctl --user -u tassh-remote -f  # on remote
+tassh status
 ```
 
-Verify DISPLAY is set in your SSH session:
+Verify display is exported in SSH session:
 
 ```bash
-echo $DISPLAY
+echo "$DISPLAY"
 ```
 
 Verify clipboard has image data:

@@ -22,6 +22,11 @@ pub enum IpcMessage {
     },
     /// Sent by `tassh status` CLI invocation.
     StatusRequest,
+    /// Sent by hidden `tassh inject` command for deterministic E2E fan-out tests.
+    InjectFrame {
+        /// PNG bytes to broadcast to all connected peers.
+        png_bytes: Vec<u8>,
+    },
 }
 
 /// Response to a StatusRequest.
