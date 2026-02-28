@@ -4,24 +4,28 @@ A PNG clipboard bridge for [Tailscale](https://tailscale.com/) + SSH.
 
 Take a screenshot on one node and paste it into apps on another node over SSH.
 
-## How it works now (automatic daemon mode)
+## How it works (daemon mode)
 
-`tassh` now uses a single daemon per node.
+`tassh` uses a single daemon per node.
 
 1. `tassh daemon` runs on each node.
-2. When you start an SSH session, SSH `LocalCommand` runs `tassh notify` on the source node.
+2. On SSH connect, SSH `LocalCommand` runs `tassh notify` on the source node.
 3. The source daemon tracks SSH sessions and connects to destination daemon(s) automatically.
 4. Clipboard PNG frames are forwarded over TCP on the Tailscale network.
-5. Destination node writes frames into an X11 clipboard (Xvfb if needed) for paste.
+5. Destination node writes frames into clipboard (`xclip` on X11/Xvfb, `wl-copy` on Wayland).
 
-You do not need to manually run `tassh local` / `tassh remote` for normal use.
+```
+[Screenshot] -> tassh daemon -> TCP/Tailscale -> tassh daemon -> remote clipboard -> Ctrl-V
+```
 
 ## Prerequisites
 
 - [Rust](https://rustup.rs/) (build/install)
 - [Tailscale](https://tailscale.com/) (node-to-node network path)
 - OpenSSH client/server
-- `xclip` and `xvfb` available on nodes that may receive clipboard frames
+- Clipboard tools:
+  - X11/headless: `xclip` (and `xvfb` for headless)
+  - Wayland: `wl-copy` (`wl-clipboard` package)
 
 ## Install
 
@@ -58,9 +62,7 @@ Host *
     LocalCommand tassh notify --host %h --port %p --ssh-pid $PPID
 ```
 
-- Prints a shell snippet to source `~/.tassh/display` inside SSH sessions
-
-Add the display snippet to your shell profile (`~/.zshrc` or `~/.bashrc`), then open a new SSH session.
+- Ensures your shell profiles source `~/.tassh/display` in SSH sessions
 
 ## Usage
 
@@ -75,22 +77,12 @@ Check status at any time:
 tassh status
 ```
 
-## Legacy commands
-
-`tassh local` and `tassh remote` still exist for compatibility, but are deprecated in favor of daemon mode.
-
 ## Systemd and logs
 
 Check daemon logs:
 
 ```bash
 journalctl --user -u tassh-daemon.service -f
-```
-
-If migrating from old units:
-
-```bash
-systemctl --user disable --now tassh-local.service tassh-remote.service
 ```
 
 ## Integration harness (Docker)

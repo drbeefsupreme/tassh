@@ -37,8 +37,8 @@ impl DisplayManager {
     /// 3. Neither → headless path: clean stale locks, spawn Xvfb, publish `~/.tassh/display`
     ///
     /// When `force_xvfb` is true, skip Wayland/X11 detection and always spawn Xvfb.
-    /// This is used by `tassh remote` so that SSH sessions can read the clipboard
-    /// via the published `~/.tassh/display` file, even on machines with a desktop session.
+    /// This mode is useful when callers want SSH sessions to always use the published
+    /// `~/.tassh/display` clipboard, even on machines with a desktop session.
     pub async fn detect_and_init(force_xvfb: bool) -> anyhow::Result<Self> {
         if !force_xvfb {
             // 1. Try Wayland
