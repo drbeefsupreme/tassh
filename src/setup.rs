@@ -1,6 +1,6 @@
 //! tassh setup — generates systemd user service unit files and orchestrates systemctl.
 
-use std::io::{Read, Seek, SeekFrom, Write};
+use std::io::{BufRead, IsTerminal, Read, Seek, SeekFrom, Write};
 use std::os::fd::AsRawFd;
 use std::path::PathBuf;
 use std::process::Command;
@@ -98,6 +98,32 @@ fn install_shell_snippets() {
 }
 
 // ---------------------------------------------------------------------------
+// Interactive wizard helpers
+// ---------------------------------------------------------------------------
+
+/// Print a yes/no prompt and return the user's answer.
+/// Returns `false` when stdin is not a TTY (piped/redirected). Use `--yes` for non-interactive use.
+fn prompt_yes_no(question: &str, default_yes: bool) -> bool {
+    if !std::io::stdin().is_terminal() {
+        return false;
+    }
+
+    let hint = if default_yes { "Y/n" } else { "y/N" };
+    print!("{question} [{hint}] ");
+    std::io::stdout().flush().ok();
+
+    let mut input = String::new();
+    match std::io::stdin().read_line(&mut input) {
+        Ok(_) => match input.trim().to_lowercase().as_str() {
+            "y" | "yes" => true,
+            "n" | "no" => false,
+            _ => default_yes,
+        },
+        Err(_) => default_yes,
+    }
+}
+
+// ---------------------------------------------------------------------------
 // systemctl helper
 // ---------------------------------------------------------------------------
 
@@ -161,7 +187,9 @@ pub fn run_setup_daemon(args: &SetupDaemonArgs) -> anyhow::Result<()> {
         );
     }
 
-    // Write systemd unit.
+    // -----------------------------------------------------------------------
+    // Systemd service (mandatory — this is what `setup daemon` is for).
+    // -----------------------------------------------------------------------
     let service_name = "tassh-daemon.service";
     let dir = unit_dir();
     std::fs::create_dir_all(&dir).with_context(|| format!("failed to create {}", dir.display()))?;
@@ -190,40 +218,82 @@ pub fn run_setup_daemon(args: &SetupDaemonArgs) -> anyhow::Result<()> {
         ),
     }
 
-    // Handle SSH config.
-    let ssh_config_path = home_dir().join(".ssh/config");
-
-    if ssh_config_path.exists() {
-        let content = std::fs::read_to_string(&ssh_config_path)?;
-        if content.contains("# tassh:") {
-            println!();
-            println!("SSH config already contains tassh stanza.");
-        } else if content.contains("LocalCommand") {
-            println!();
-            println!("WARNING: ~/.ssh/config already contains LocalCommand directives.");
-            println!("Please manually add the following to ~/.ssh/config:");
-            println!("{}", ssh_config_stanza());
-            println!();
-        } else {
-            // Safe to append.
-            let mut file = std::fs::OpenOptions::new()
-                .append(true)
-                .open(&ssh_config_path)?;
-            use std::io::Write;
-            writeln!(file, "{}", ssh_config_stanza())?;
-            println!("Appended LocalCommand stanza to ~/.ssh/config");
-        }
-    } else {
-        // Create new SSH config.
-        std::fs::create_dir_all(ssh_config_path.parent().unwrap())?;
-        std::fs::write(&ssh_config_path, ssh_config_stanza())?;
-        println!("Created ~/.ssh/config with LocalCommand stanza");
-    }
-
-    install_shell_snippets();
+    // -----------------------------------------------------------------------
+    // SSH config — optional, prompt the user.
+    // -----------------------------------------------------------------------
     println!();
+    setup_ssh_config(args.yes)?;
 
+    // -----------------------------------------------------------------------
+    // Shell snippets — optional, prompt the user.
+    // -----------------------------------------------------------------------
+    println!();
+    setup_shell_snippets(args.yes);
+
+    println!();
     println!("To follow logs: journalctl --user -u {} -f", service_name);
 
     Ok(())
+}
+
+fn setup_ssh_config(yes: bool) -> anyhow::Result<()> {
+    let ssh_config_path = home_dir().join(".ssh/config");
+
+    // If the stanza is already present, nothing to do.
+    if ssh_config_path.exists() {
+        let content = std::fs::read_to_string(&ssh_config_path)?;
+        if content.contains("# tassh:") {
+            println!("SSH config already contains the tassh stanza — skipping.");
+            return Ok(());
+        }
+
+        // Existing LocalCommand directives: we cannot safely append.
+        if content.contains("LocalCommand") {
+            println!("WARNING: ~/.ssh/config already contains LocalCommand directives.");
+            println!("Please manually add the following to ~/.ssh/config:");
+            println!("{}", ssh_config_stanza());
+            return Ok(());
+        }
+    }
+
+    let do_it = yes || prompt_yes_no("Add the tassh LocalCommand hook to ~/.ssh/config?", true);
+
+    if do_it {
+        if ssh_config_path.exists() {
+            let mut file = std::fs::OpenOptions::new()
+                .append(true)
+                .open(&ssh_config_path)?;
+            writeln!(file, "{}", ssh_config_stanza())?;
+            println!("Appended LocalCommand stanza to ~/.ssh/config");
+        } else {
+            std::fs::create_dir_all(ssh_config_path.parent().unwrap())?;
+            std::fs::write(&ssh_config_path, ssh_config_stanza())?;
+            println!("Created ~/.ssh/config with LocalCommand stanza");
+        }
+    } else {
+        println!("Skipped SSH config update.");
+        println!("To set it up manually, add the following to ~/.ssh/config:");
+        println!("{}", ssh_config_stanza());
+    }
+
+    Ok(())
+}
+
+fn setup_shell_snippets(yes: bool) {
+    let do_it = yes
+        || prompt_yes_no(
+            "Add the DISPLAY export hook to your shell profiles (.zshrc, .zprofile, .bashrc)?",
+            true,
+        );
+
+    if do_it {
+        install_shell_snippets();
+    } else {
+        println!("Skipped shell profile update.");
+        println!(
+            "To set it up manually, add the following to ~/.zshrc, ~/.zprofile, or ~/.bashrc:"
+        );
+        println!();
+        println!("{}", shell_snippet());
+    }
 }

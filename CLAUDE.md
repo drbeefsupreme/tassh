@@ -10,7 +10,12 @@ tassh is a Rust CLI tool. Use these commands for development.
 - Format check: `cargo fmt --check`
 - Format fix: `cargo fmt`
 
-Always run clippy and format before committing. Ensure CI passes.
+**Before every commit and before creating any PR, you MUST run (in order):**
+1. `cargo fmt` — fixes formatting (required; CI will fail without it)
+2. `cargo clippy --all-targets --all-features -- -D warnings` — lint check
+3. `cargo test` — run tests
+
+Never skip `cargo fmt`. CI enforces formatting via `cargo fmt --all -- --check`.
 
 ## Pull Requests
 

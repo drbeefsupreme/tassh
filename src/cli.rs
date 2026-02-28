@@ -66,4 +66,8 @@ pub struct SetupDaemonArgs {
     /// Port for daemon TCP connections
     #[arg(long, default_value = "9877")]
     pub port: u16,
+
+    /// Accept all prompts without interaction (useful for scripting)
+    #[arg(long, short = 'y')]
+    pub yes: bool,
 }
