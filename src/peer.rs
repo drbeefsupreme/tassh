@@ -47,16 +47,18 @@ impl PeerRegistry {
 
     /// Get or create peer state for a hostname.
     pub fn get_or_create(&mut self, hostname: &str) -> &mut PeerState {
-        self.peers.entry(hostname.to_owned()).or_insert_with(|| PeerState {
-            session_count: 0,
-            inbound_connections: 0,
-            connected: false,
-            connecting: false,
-            probe_failed: false,
-            watched_pids: std::collections::HashSet::new(),
-            pid_watcher_handles: Vec::new(),
-            close_tx: None,
-        })
+        self.peers
+            .entry(hostname.to_owned())
+            .or_insert_with(|| PeerState {
+                session_count: 0,
+                inbound_connections: 0,
+                connected: false,
+                connecting: false,
+                probe_failed: false,
+                watched_pids: std::collections::HashSet::new(),
+                pid_watcher_handles: Vec::new(),
+                close_tx: None,
+            })
     }
 
     /// Get peer state by hostname (immutable).
@@ -110,6 +112,11 @@ impl PeerRegistry {
             .filter(|(_, state)| state.connected && state.session_count == 0)
             .map(|(hostname, _)| hostname.clone())
             .collect()
+    }
+
+    /// List all known peer keys.
+    pub fn hostnames(&self) -> Vec<String> {
+        self.peers.keys().cloned().collect()
     }
 
     /// Get a subscriber to the clipboard broadcast channel.

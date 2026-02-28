@@ -72,6 +72,12 @@ count_tassh() {
   docker_exec "${node}" "pgrep -xc tassh || true"
 }
 
+tassh_count_is() {
+  local node="$1"
+  local expected="$2"
+  [[ "$(count_tassh "${node}")" == "${expected}" ]]
+}
+
 count_established_inbound() {
   local node="$1"
   docker_exec "${node}" "ss -tn state established 'sport = :${PORT}' | awk 'NR>1 {c++} END {print c+0}'"
@@ -96,6 +102,8 @@ start_daemon() {
       env_prefix="DISPLAY=:99 WAYLAND_DISPLAY="
       ;;
     wayland)
+      # No Wayland compositor is started in this harness. This mode validates
+      # daemon fallback behavior when WAYLAND_DISPLAY is set but unavailable.
       env_prefix="DISPLAY= WAYLAND_DISPLAY=wayland-1"
       ;;
     *)
@@ -202,8 +210,8 @@ log "test 1: first session connects, second session reuses the same daemon conne
 PID_B1="$(start_ssh_session_from_a node-b ssh-b-1)"
 wait_for 25 "node-a syncing to node-b after first session" status_has node-a "node-b -- syncing (1 SSH session)"
 wait_for 25 "node-b reports inbound session from node-a" status_has node-b "syncing (1 SSH session)"
-assert_eq "1" "$(count_tassh node-a)" "node-a should have exactly one daemon process"
-assert_eq "1" "$(count_tassh node-b)" "node-b should have exactly one daemon process"
+wait_for 15 "node-a should have exactly one daemon process" tassh_count_is node-a "1"
+wait_for 15 "node-b should have exactly one daemon process" tassh_count_is node-b "1"
 ESTABLISHED_BEFORE="$(count_established_inbound node-b)"
 assert_eq "1" "${ESTABLISHED_BEFORE}" "node-b should have one established tassh inbound connection"
 
@@ -255,7 +263,7 @@ wait_for 30 "node-a eventually syncs with node-d after daemon start" status_has 
 kill_pid_on_a "${PID_D1}"
 wait_for 25 "node-d peer removed after final session closes" status_not_has node-a "node-d --"
 
-log "test 4: image paste matrix across local/remote display modes"
+log "test 4: image paste matrix across local/remote display modes (wayland mode validates fallback path)"
 for local_mode in "${DISPLAY_MODES[@]}"; do
   for remote_mode in "${DISPLAY_MODES[@]}"; do
     label="matrix-${local_mode}-${remote_mode}"

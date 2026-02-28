@@ -37,7 +37,7 @@ async fn main() {
             // Spawn clipboard watcher — polls local clipboard, wraps PNG bytes in Frame,
             // sends over mpsc channel to the transport client.
             let watch_handle = tokio::spawn(async move {
-                if let Err(e) = clipboard::watch_clipboard(tx).await {
+                if let Err(e) = clipboard::watch_clipboard(tx, None, None).await {
                     tracing::error!("clipboard watcher error: {e}");
                 }
             });
@@ -80,16 +80,15 @@ async fn main() {
             }
 
             // Set up SIGTERM handler for clean shutdown.
-            let mut sigterm = match tokio::signal::unix::signal(
-                tokio::signal::unix::SignalKind::terminate(),
-            ) {
-                Ok(s) => s,
-                Err(e) => {
-                    eprintln!("failed to install SIGTERM handler: {e}");
-                    display_mgr.shutdown().await;
-                    std::process::exit(1);
-                }
-            };
+            let mut sigterm =
+                match tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate()) {
+                    Ok(s) => s,
+                    Err(e) => {
+                        eprintln!("failed to install SIGTERM handler: {e}");
+                        display_mgr.shutdown().await;
+                        std::process::exit(1);
+                    }
+                };
 
             // Run server loop; handle SIGTERM and Ctrl-C for clean shutdown.
             tokio::select! {
@@ -227,11 +226,11 @@ async fn run_status() -> anyhow::Result<()> {
         for peer in response.peers {
             // Status reflects actual clipboard sync state
             let status = if peer.connected {
-                "syncing"  // Clipboard TCP connection is active
+                "syncing" // Clipboard TCP connection is active
             } else if peer.no_daemon {
-                "no daemon"  // Remote doesn't have tassh running
+                "no daemon" // Remote doesn't have tassh running
             } else {
-                "probing"  // Still checking for remote daemon
+                "probing" // Still checking for remote daemon
             };
             println!(
                 "  {} -- {} ({} SSH session{})",

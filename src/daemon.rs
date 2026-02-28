@@ -1,6 +1,8 @@
 //! Unified tassh daemon: IPC server, peer management, clipboard broadcast.
 
 use std::collections::{HashMap, HashSet};
+use std::ffi::CStr;
+use std::net::IpAddr;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
@@ -86,18 +88,6 @@ pub async fn run_daemon(port: u16) -> anyhow::Result<()> {
         watcher_display, watcher_wayland_display
     );
 
-    #[allow(deprecated)]
-    unsafe {
-        match watcher_display {
-            Some(ref value) => std::env::set_var("DISPLAY", value),
-            None => std::env::remove_var("DISPLAY"),
-        }
-        match watcher_wayland_display {
-            Some(ref value) => std::env::set_var("WAYLAND_DISPLAY", value),
-            None => std::env::remove_var("WAYLAND_DISPLAY"),
-        }
-    }
-
     // Create peer registry and clipboard broadcast channel.
     let (registry, clip_tx) = PeerRegistry::new();
     let registry = Arc::new(Mutex::new(registry));
@@ -106,7 +96,7 @@ pub async fn run_daemon(port: u16) -> anyhow::Result<()> {
     let clip_tx_clone = clip_tx.clone();
     let (watch_tx, mut watch_rx) = mpsc::channel::<Frame>(16);
     let clipboard_handle = tokio::spawn(async move {
-        if let Err(e) = watch_clipboard(watch_tx).await {
+        if let Err(e) = watch_clipboard(watch_tx, watcher_display, watcher_wayland_display).await {
             warn!("clipboard watcher error: {e}");
         }
     });
@@ -124,8 +114,14 @@ pub async fn run_daemon(port: u16) -> anyhow::Result<()> {
     let tcp_display_str = display_mgr.display_str.clone();
     let tcp_clip_tx = clip_tx.clone();
     let tcp_handle = tokio::spawn(async move {
-        if let Err(e) =
-            run_tcp_server(port, tcp_registry, tcp_display_env, tcp_display_str, tcp_clip_tx).await
+        if let Err(e) = run_tcp_server(
+            port,
+            tcp_registry,
+            tcp_display_env,
+            tcp_display_str,
+            tcp_clip_tx,
+        )
+        .await
         {
             warn!("TCP server error: {e}");
         }
@@ -194,7 +190,10 @@ pub async fn run_daemon(port: u16) -> anyhow::Result<()> {
     reconcile_handle.abort();
 
     // Timeout display shutdown to prevent hang on SIGTERM
-    if tokio::time::timeout(Duration::from_secs(2), display_mgr.shutdown()).await.is_err() {
+    if tokio::time::timeout(Duration::from_secs(2), display_mgr.shutdown())
+        .await
+        .is_err()
+    {
         warn!("display shutdown timed out, forcing exit");
     }
     let _ = std::fs::remove_file(&sock_path);
@@ -217,7 +216,11 @@ async fn handle_ipc_connection(
     }
 
     match serde_json::from_str::<IpcMessage>(&line) {
-        Ok(IpcMessage::Connect { hostname, port: _ssh_port, ssh_pid }) => {
+        Ok(IpcMessage::Connect {
+            hostname,
+            port: _ssh_port,
+            ssh_pid,
+        }) => {
             debug!("IPC: Connect to {hostname} (ssh_pid={ssh_pid})");
             handle_connect(&hostname, ssh_pid, registry, clip_tx, port).await;
         }
@@ -229,7 +232,9 @@ async fn handle_ipc_connection(
             // Refresh liveness so status does not stay "syncing" after a remote daemon exits.
             refresh_peer_liveness(registry.clone(), clip_tx.clone(), port, true).await;
             let reg = registry.lock().await;
-            let response = StatusResponse { peers: reg.list_peers() };
+            let response = StatusResponse {
+                peers: reg.list_peers(),
+            };
             drop(reg);
             let json = serde_json::to_string(&response).unwrap_or_default();
             let stream = reader.into_inner();
@@ -282,6 +287,7 @@ async fn refresh_peer_liveness(
         reg.hosts_with_sessions()
     };
 
+    let mut probe_jobs = tokio::task::JoinSet::new();
     for hostname in hosts {
         let (connected, connecting) = {
             let reg = registry.lock().await;
@@ -299,7 +305,23 @@ async fn refresh_peer_liveness(
             continue;
         }
 
-        if probe_remote_with_timeout(&hostname, port, Duration::from_millis(400)).await {
+        probe_jobs.spawn(async move {
+            let reachable =
+                probe_remote_with_timeout(&hostname, port, Duration::from_millis(400)).await;
+            (hostname, connected, reachable)
+        });
+    }
+
+    while let Some(job) = probe_jobs.join_next().await {
+        let (hostname, connected, reachable) = match job {
+            Ok(values) => values,
+            Err(e) => {
+                warn!("liveness probe task failed: {e}");
+                continue;
+            }
+        };
+
+        if reachable {
             if connected {
                 continue;
             }
@@ -416,20 +438,12 @@ async fn handle_connect(
 }
 
 /// Handle a Disconnect IPC message (explicit, rare - usually we detect via pidfd).
-async fn handle_disconnect(
-    hostname: &str,
-    ssh_pid: u32,
-    registry: Arc<Mutex<PeerRegistry>>,
-) {
+async fn handle_disconnect(hostname: &str, ssh_pid: u32, registry: Arc<Mutex<PeerRegistry>>) {
     handle_pid_exit(hostname, ssh_pid, registry).await;
 }
 
 /// Called when an SSH process exits (detected via pidfd).
-async fn handle_pid_exit(
-    hostname: &str,
-    ssh_pid: u32,
-    registry: Arc<Mutex<PeerRegistry>>,
-) {
+async fn handle_pid_exit(hostname: &str, ssh_pid: u32, registry: Arc<Mutex<PeerRegistry>>) {
     let mut reg = registry.lock().await;
     if let Some(peer) = reg.get_mut(hostname) {
         peer.watched_pids.remove(&ssh_pid);
@@ -457,12 +471,7 @@ async fn probe_remote(hostname: &str, port: u16) -> bool {
 
 /// Probe a remote host with a caller-provided timeout.
 async fn probe_remote_with_timeout(hostname: &str, port: u16, timeout: Duration) -> bool {
-    match tokio::time::timeout(
-        timeout,
-        TcpStream::connect(format!("{hostname}:{port}")),
-    )
-    .await
-    {
+    match tokio::time::timeout(timeout, TcpStream::connect(format!("{hostname}:{port}"))).await {
         Ok(Ok(_stream)) => true, // Connection succeeded = daemon present
         _ => false,              // Refused or timeout = no daemon
     }
@@ -511,17 +520,6 @@ async fn start_peer_connection(
             if !keep_connection {
                 debug!("dropping connection to {hostname} because no active SSH sessions remain");
                 return;
-            }
-
-            // Update registry - connection established
-            {
-                let mut reg = registry.lock().await;
-                if let Some(peer) = reg.get_mut(hostname) {
-                    peer.connected = true;
-                    peer.connecting = false;
-                    peer.probe_failed = false;
-                    // close_tx already set above when keep_connection was computed
-                }
             }
 
             // Subscribe to clipboard broadcast
@@ -610,8 +608,9 @@ async fn run_tcp_server(
 
     loop {
         let (stream, peer_addr) = listener.accept().await?;
-        info!("accepted connection from {peer_addr}");
-        let peer_host = peer_addr.ip().to_string();
+        let peer_ip = peer_addr.ip();
+        let peer_host = resolve_inbound_peer_key(peer_ip, registry.clone()).await;
+        info!("accepted connection from {peer_addr} (peer={peer_host})");
 
         {
             let mut reg = registry.lock().await;
@@ -657,6 +656,148 @@ async fn run_tcp_server(
                 peer.inbound_connections = peer.inbound_connections.saturating_sub(1);
             }
         });
+    }
+}
+
+/// Resolve an inbound peer registry key from socket IP, preferring existing host keys.
+async fn resolve_inbound_peer_key(peer_ip: IpAddr, registry: Arc<Mutex<PeerRegistry>>) -> String {
+    if let Some(existing) = existing_peer_key_for_ip(registry.clone(), peer_ip).await {
+        return existing;
+    }
+
+    if let Some(reverse_host) = reverse_dns_lookup(peer_ip).await {
+        let normalized = normalize_peer_hostname(&reverse_host);
+
+        // Reuse an existing key if reverse DNS gave a different variant (short/FQDN).
+        let known_hosts = {
+            let reg = registry.lock().await;
+            reg.hostnames()
+        };
+        let normalized_short = normalized.split('.').next().unwrap_or(normalized.as_str());
+        for known in known_hosts {
+            let known_norm = normalize_peer_hostname(&known);
+            let known_short = known_norm.split('.').next().unwrap_or(known_norm.as_str());
+            if known_norm == normalized
+                || known_short == normalized
+                || known_norm == normalized_short
+                || known_short == normalized_short
+            {
+                return known;
+            }
+        }
+
+        return normalized;
+    }
+
+    peer_ip.to_string()
+}
+
+async fn existing_peer_key_for_ip(
+    registry: Arc<Mutex<PeerRegistry>>,
+    peer_ip: IpAddr,
+) -> Option<String> {
+    let known_hosts = {
+        let reg = registry.lock().await;
+        reg.hostnames()
+    };
+
+    for host in known_hosts {
+        if host_resolves_to_ip(&host, peer_ip).await {
+            return Some(host);
+        }
+    }
+    None
+}
+
+async fn host_resolves_to_ip(hostname: &str, peer_ip: IpAddr) -> bool {
+    if hostname.parse::<IpAddr>().ok() == Some(peer_ip) {
+        return true;
+    }
+
+    match tokio::net::lookup_host((hostname, 0)).await {
+        Ok(addrs) => addrs.into_iter().any(|addr| addr.ip() == peer_ip),
+        Err(_) => false,
+    }
+}
+
+fn normalize_peer_hostname(raw: &str) -> String {
+    let trimmed = raw.trim().trim_end_matches('.');
+    normalize_ssh_host(trimmed).unwrap_or_else(|| trimmed.to_ascii_lowercase())
+}
+
+async fn reverse_dns_lookup(peer_ip: IpAddr) -> Option<String> {
+    tokio::task::spawn_blocking(move || reverse_dns_lookup_blocking(peer_ip))
+        .await
+        .ok()
+        .flatten()
+}
+
+fn reverse_dns_lookup_blocking(peer_ip: IpAddr) -> Option<String> {
+    let mut host_buf = [0_i8; libc::NI_MAXHOST as usize];
+
+    let rc = match peer_ip {
+        IpAddr::V4(addr) => {
+            let sockaddr = libc::sockaddr_in {
+                sin_family: libc::AF_INET as u16,
+                sin_port: 0,
+                sin_addr: libc::in_addr {
+                    s_addr: u32::from_ne_bytes(addr.octets()),
+                },
+                sin_zero: [0; 8],
+            };
+
+            // SAFETY: sockaddr points to a valid initialized sockaddr_in for this call.
+            unsafe {
+                libc::getnameinfo(
+                    (&sockaddr as *const libc::sockaddr_in).cast::<libc::sockaddr>(),
+                    std::mem::size_of::<libc::sockaddr_in>() as libc::socklen_t,
+                    host_buf.as_mut_ptr(),
+                    host_buf.len() as libc::socklen_t,
+                    std::ptr::null_mut(),
+                    0,
+                    libc::NI_NAMEREQD,
+                )
+            }
+        }
+        IpAddr::V6(addr) => {
+            let sockaddr = libc::sockaddr_in6 {
+                sin6_family: libc::AF_INET6 as u16,
+                sin6_port: 0,
+                sin6_flowinfo: 0,
+                sin6_addr: libc::in6_addr {
+                    s6_addr: addr.octets(),
+                },
+                sin6_scope_id: 0,
+            };
+
+            // SAFETY: sockaddr points to a valid initialized sockaddr_in6 for this call.
+            unsafe {
+                libc::getnameinfo(
+                    (&sockaddr as *const libc::sockaddr_in6).cast::<libc::sockaddr>(),
+                    std::mem::size_of::<libc::sockaddr_in6>() as libc::socklen_t,
+                    host_buf.as_mut_ptr(),
+                    host_buf.len() as libc::socklen_t,
+                    std::ptr::null_mut(),
+                    0,
+                    libc::NI_NAMEREQD,
+                )
+            }
+        }
+    };
+
+    if rc != 0 {
+        return None;
+    }
+
+    // SAFETY: getnameinfo wrote a NUL-terminated hostname into host_buf on success.
+    let host = unsafe { CStr::from_ptr(host_buf.as_ptr()) }
+        .to_string_lossy()
+        .trim()
+        .to_owned();
+    if host.is_empty() {
+        None
+    } else {
+        Some(host)
     }
 }
 
@@ -719,10 +860,7 @@ async fn discover_existing_ssh_sessions(
                 debug!("startup: skipping self destination {hostname}");
                 continue;
             }
-            hosts_to_probe
-                .entry(hostname)
-                .or_default()
-                .insert(ssh_pid);
+            hosts_to_probe.entry(hostname).or_default().insert(ssh_pid);
         }
     }
 
@@ -803,8 +941,7 @@ fn is_ssh_client_command(cmd: &str) -> bool {
 fn ssh_option_takes_value(arg: &str) -> bool {
     matches!(
         arg,
-        "-b"
-            | "-c"
+        "-b" | "-c"
             | "-D"
             | "-E"
             | "-e"

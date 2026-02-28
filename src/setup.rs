@@ -1,5 +1,7 @@
 //! tassh setup — generates systemd user service unit files and orchestrates systemctl.
 
+use std::io::{Read, Seek, SeekFrom, Write};
+use std::os::fd::AsRawFd;
 use std::path::PathBuf;
 use std::process::Command;
 
@@ -98,25 +100,43 @@ fn ensure_shell_snippet(shell: &str) -> anyhow::Result<bool> {
     let path = home_dir().join(shell);
     let marker = "# tassh: auto-export DISPLAY in SSH sessions";
 
-    let mut content = if path.exists() {
-        std::fs::read_to_string(&path)
-            .with_context(|| format!("failed to read {}", path.display()))?
-    } else {
-        String::new()
-    };
+    let mut file = std::fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create(true)
+        .open(&path)
+        .with_context(|| format!("failed to open {}", path.display()))?;
+
+    // Lock the file for the whole read/check/append sequence to avoid duplicate
+    // snippet writes from concurrent setup invocations.
+    // SAFETY: `flock` is called with a valid file descriptor and constant flags.
+    let rc = unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX) };
+    if rc != 0 {
+        return Err(std::io::Error::last_os_error())
+            .with_context(|| format!("failed to lock {}", path.display()));
+    }
+
+    let mut content = String::new();
+    file.read_to_string(&mut content)
+        .with_context(|| format!("failed to read {}", path.display()))?;
 
     if content.contains(marker) {
         return Ok(false);
     }
 
+    let mut to_append = String::new();
     if !content.is_empty() && !content.ends_with('\n') {
-        content.push('\n');
+        to_append.push('\n');
     }
-    content.push('\n');
-    content.push_str(shell_snippet());
+    to_append.push('\n');
+    to_append.push_str(shell_snippet());
 
-    std::fs::write(&path, content)
+    file.seek(SeekFrom::End(0))
+        .with_context(|| format!("failed to seek {}", path.display()))?;
+    file.write_all(to_append.as_bytes())
         .with_context(|| format!("failed to write {}", path.display()))?;
+    file.flush()
+        .with_context(|| format!("failed to flush {}", path.display()))?;
     Ok(true)
 }
 
@@ -143,11 +163,7 @@ fn run_systemctl(args: &[&str]) -> anyhow::Result<()> {
         .with_context(|| format!("failed to run systemctl {}", args.join(" ")))?;
 
     if !status.success() {
-        bail!(
-            "systemctl {} exited with status {}",
-            args.join(" "),
-            status
-        );
+        bail!("systemctl {} exited with status {}", args.join(" "), status);
     }
     Ok(())
 }
@@ -158,8 +174,7 @@ fn run_systemctl(args: &[&str]) -> anyhow::Result<()> {
 
 fn run_setup(service_name: &str, unit_content: &str) -> anyhow::Result<()> {
     let dir = unit_dir();
-    std::fs::create_dir_all(&dir)
-        .with_context(|| format!("failed to create {}", dir.display()))?;
+    std::fs::create_dir_all(&dir).with_context(|| format!("failed to create {}", dir.display()))?;
 
     let unit_path = dir.join(service_name);
     std::fs::write(&unit_path, unit_content)
@@ -171,9 +186,7 @@ fn run_setup(service_name: &str, unit_content: &str) -> anyhow::Result<()> {
     run_systemctl(&["--user", "start", service_name])?;
 
     // loginctl enable-linger: failure is a warning, not a fatal error.
-    let linger_status = Command::new("loginctl")
-        .arg("enable-linger")
-        .status();
+    let linger_status = Command::new("loginctl").arg("enable-linger").status();
     match linger_status {
         Ok(s) if s.success() => {}
         Ok(s) => {
@@ -193,10 +206,7 @@ fn run_setup(service_name: &str, unit_content: &str) -> anyhow::Result<()> {
 
     install_shell_snippets();
     println!();
-    println!(
-        "To follow logs: journalctl --user -u {} -f",
-        service_name
-    );
+    println!("To follow logs: journalctl --user -u {} -f", service_name);
 
     Ok(())
 }
@@ -282,8 +292,7 @@ pub fn run_setup_daemon(args: &SetupDaemonArgs) -> anyhow::Result<()> {
     // Write systemd unit.
     let service_name = "tassh-daemon.service";
     let dir = unit_dir();
-    std::fs::create_dir_all(&dir)
-        .with_context(|| format!("failed to create {}", dir.display()))?;
+    std::fs::create_dir_all(&dir).with_context(|| format!("failed to create {}", dir.display()))?;
 
     let unit_path = dir.join(service_name);
     std::fs::write(&unit_path, tassh_daemon_unit(args.port))
