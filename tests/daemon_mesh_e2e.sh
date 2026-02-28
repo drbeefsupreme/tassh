@@ -86,11 +86,13 @@ start_daemon() {
   local node="$1"
   local mode="${2:-headless}"
   local env_prefix=""
+  docker_exec "${node}" "pkill -f '^Xvfb :99' >/dev/null 2>&1 || true"
   case "${mode}" in
     headless)
       env_prefix="DISPLAY= WAYLAND_DISPLAY="
       ;;
     x11)
+      docker_exec "${node}" "nohup Xvfb :99 -screen 0 1x1x24 >/tmp/xvfb-99.log 2>&1 &"
       env_prefix="DISPLAY=:99 WAYLAND_DISPLAY="
       ;;
     wayland)
@@ -227,6 +229,9 @@ wait_for 30 "node-a syncing to node-c" status_has node-a "node-c -- syncing (1 S
 CLIP_PNG="${REPO_ROOT}/target/tassh-e2e-clip.png"
 printf '%s' 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO2f7iwAAAAASUVORK5CYII=' | base64 -d > "${CLIP_PNG}"
 EXPECTED_HASH="$(sha256sum "${CLIP_PNG}" | awk '{print $1}')"
+CLIP_PNG_WATCH="${REPO_ROOT}/target/tassh-e2e-clip-watch.png"
+printf '%s' 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8z8AARQMBgQf9nQAAAABJRU5ErkJggg==' | base64 -d > "${CLIP_PNG_WATCH}"
+EXPECTED_HASH_WATCH="$(sha256sum "${CLIP_PNG_WATCH}" | awk '{print $1}')"
 docker cp "${CLIP_PNG}" node-a:/tmp/clip.png
 
 docker_exec node-a "/usr/local/bin/tassh inject --png-file /tmp/clip.png"
@@ -271,5 +276,22 @@ for local_mode in "${DISPLAY_MODES[@]}"; do
     wait_for 25 "${label}: node-a peer removed after session closes" status_not_has node-a "node-b --"
   done
 done
+
+if [[ "${TASSH_E2E_INCLUDE_WATCHER:-0}" == "1" ]]; then
+  log "test 5: real watcher path forwards local x11 clipboard changes"
+  start_daemon node-a x11
+  start_daemon node-b headless
+  pid_watch="$(start_ssh_session_from_a node-b watcher-x11-headless)"
+  wait_for 25 "watcher path: node-a syncing to node-b" status_has node-a "node-b -- syncing (1 SSH session)"
+  docker cp "${CLIP_PNG}" node-a:/tmp/clip.png
+  docker_exec node-a "DISPLAY=:99 xclip -selection clipboard -t image/png -i /tmp/clip.png"
+  docker cp "${CLIP_PNG_WATCH}" node-a:/tmp/clip-watch.png
+  docker_exec node-a "DISPLAY=:99 xclip -selection clipboard -t image/png -i /tmp/clip-watch.png"
+  wait_for 35 "watcher path: node-b clipboard hash matches source" clipboard_hash_matches node-b "${EXPECTED_HASH_WATCH}"
+  kill_pid_on_a "${pid_watch}"
+  wait_for 25 "watcher path: node-a peer removed after session closes" status_not_has node-a "node-b --"
+else
+  log "test 5: watcher path check skipped (set TASSH_E2E_INCLUDE_WATCHER=1 to enable)"
+fi
 
 log "all daemon mesh e2e assertions passed"

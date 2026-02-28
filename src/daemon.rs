@@ -15,7 +15,7 @@ use crate::display::DisplayManager;
 use crate::ipc::{IpcMessage, StatusResponse};
 use crate::peer::PeerRegistry;
 use crate::pid_watcher::watch_pid;
-use crate::protocol::Frame;
+use crate::protocol::{DisplayEnvironment, Frame};
 use crate::transport::{apply_keepalive, recv_frame, send_frame};
 
 /// Default port for tassh daemon TCP connections.
@@ -37,10 +37,14 @@ pub fn socket_path() -> PathBuf {
 /// 5. Manages peer connections and clipboard broadcast
 pub async fn run_daemon(port: u16) -> anyhow::Result<()> {
     let sock_path = socket_path();
+    let original_display = std::env::var("DISPLAY").ok();
+    let original_wayland_display = std::env::var("WAYLAND_DISPLAY").ok();
 
     // Ensure ~/.tassh directory exists
     if let Some(parent) = sock_path.parent() {
         std::fs::create_dir_all(parent)?;
+        // Drop stale exported display from previous runs before we initialize a new one.
+        let _ = std::fs::remove_file(parent.join("display"));
     }
 
     // Single-instance check: try to connect to existing socket
@@ -51,23 +55,54 @@ pub async fn run_daemon(port: u16) -> anyhow::Result<()> {
     // Remove stale socket from previous crash
     let _ = std::fs::remove_file(&sock_path);
 
-    // Prefer Xvfb so SSH sessions can source ~/.tassh/display and paste images
-    // consistently in remote CLI tools. Fall back to native display detection
-    // so daemon startup still succeeds on nodes without Xvfb.
-    let display_mgr = match DisplayManager::detect_and_init(true).await {
-        Ok(mgr) => mgr,
-        Err(e) => {
-            warn!("forced Xvfb init failed, falling back to native display detection: {e}");
-            DisplayManager::detect_and_init(false).await?
-        }
-    };
+    // Always require Xvfb here so SSH sessions can source ~/.tassh/display and
+    // paste images reliably into remote CLI tools.
+    let display_mgr = DisplayManager::detect_and_init(true)
+        .await
+        .map_err(|e| anyhow::anyhow!("display init failed (Xvfb required): {e}"))?;
     info!("display initialized: {:?}", display_mgr.env);
 
-    // Create peer registry and clipboard broadcast channel
+    // Choose clipboard watcher env:
+    // - Prefer the original desktop env captured at process start.
+    // - If absent (e.g. headless/user service without imported env), fall back to
+    //   the daemon display so watcher startup does not fail.
+    let original_display = original_display.filter(|v| !v.is_empty());
+    let original_wayland_display = original_wayland_display.filter(|v| !v.is_empty());
+    let (watcher_display, watcher_wayland_display) =
+        if original_display.is_some() || original_wayland_display.is_some() {
+            (original_display, original_wayland_display)
+        } else {
+            match display_mgr.env {
+                DisplayEnvironment::Wayland => (None, Some(display_mgr.display_str.clone())),
+                DisplayEnvironment::X11 | DisplayEnvironment::Xvfb => {
+                    (Some(display_mgr.display_str.clone()), None)
+                }
+                DisplayEnvironment::Headless => (None, None),
+            }
+        };
+
+    info!(
+        "clipboard watcher env: DISPLAY={:?}, WAYLAND_DISPLAY={:?}",
+        watcher_display, watcher_wayland_display
+    );
+
+    #[allow(deprecated)]
+    unsafe {
+        match watcher_display {
+            Some(ref value) => std::env::set_var("DISPLAY", value),
+            None => std::env::remove_var("DISPLAY"),
+        }
+        match watcher_wayland_display {
+            Some(ref value) => std::env::set_var("WAYLAND_DISPLAY", value),
+            None => std::env::remove_var("WAYLAND_DISPLAY"),
+        }
+    }
+
+    // Create peer registry and clipboard broadcast channel.
     let (registry, clip_tx) = PeerRegistry::new();
     let registry = Arc::new(Mutex::new(registry));
 
-    // Start clipboard watcher - converts local clipboard changes to broadcast
+    // Start clipboard watcher - converts local clipboard changes to broadcast.
     let clip_tx_clone = clip_tx.clone();
     let (watch_tx, mut watch_rx) = mpsc::channel::<Frame>(16);
     let clipboard_handle = tokio::spawn(async move {
@@ -76,7 +111,7 @@ pub async fn run_daemon(port: u16) -> anyhow::Result<()> {
         }
     });
 
-    // Bridge clipboard watcher (mpsc) to broadcast channel
+    // Bridge clipboard watcher (mpsc) to broadcast channel.
     let broadcast_handle = tokio::spawn(async move {
         while let Some(frame) = watch_rx.recv().await {
             let _ = clip_tx_clone.send(Arc::new(frame));
@@ -86,9 +121,12 @@ pub async fn run_daemon(port: u16) -> anyhow::Result<()> {
     // Start TCP listener for incoming peer connections (we also act as receiver)
     let tcp_registry = registry.clone();
     let tcp_display_env = display_mgr.env;
+    let tcp_display_str = display_mgr.display_str.clone();
     let tcp_clip_tx = clip_tx.clone();
     let tcp_handle = tokio::spawn(async move {
-        if let Err(e) = run_tcp_server(port, tcp_registry, tcp_display_env, tcp_clip_tx).await {
+        if let Err(e) =
+            run_tcp_server(port, tcp_registry, tcp_display_env, tcp_display_str, tcp_clip_tx).await
+        {
             warn!("TCP server error: {e}");
         }
     });
@@ -562,6 +600,7 @@ async fn run_tcp_server(
     port: u16,
     registry: Arc<Mutex<PeerRegistry>>,
     display_env: crate::protocol::DisplayEnvironment,
+    display_str: String,
     _clip_tx: broadcast::Sender<Arc<Frame>>,
 ) -> anyhow::Result<()> {
     // Resolve Tailscale IP for binding
@@ -586,7 +625,7 @@ async fn run_tcp_server(
         }
 
         let (mut reader, writer) = stream.into_split();
-        let mut clip_writer = ClipboardWriter::new(display_env);
+        let mut clip_writer = ClipboardWriter::new(display_env, Some(display_str.clone()));
         let registry_for_cleanup = registry.clone();
         let peer_host_for_cleanup = peer_host.clone();
 

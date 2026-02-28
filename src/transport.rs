@@ -143,7 +143,7 @@ pub async fn server(
 
         let (mut reader, _writer) = stream.into_split();
         // Create a ClipboardWriter per connection so each connection gets a fresh writer.
-        let mut writer = ClipboardWriter::new(display_env);
+        let mut writer = ClipboardWriter::new(display_env, None);
         loop {
             match recv_frame(&mut reader).await {
                 Ok(frame) => {

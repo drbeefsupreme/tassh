@@ -153,14 +153,17 @@ pub struct ClipboardWriter {
 
     /// Which display environment we're writing to.
     display: DisplayEnvironment,
+    /// Explicit display string for X11/Xvfb writes (e.g. ":0"), if provided.
+    display_str: Option<String>,
 }
 
 impl ClipboardWriter {
     /// Create a new writer for the given display environment.
-    pub fn new(display: DisplayEnvironment) -> Self {
+    pub fn new(display: DisplayEnvironment, display_str: Option<String>) -> Self {
         Self {
             current_child: None,
             display,
+            display_str,
         }
     }
 
@@ -198,9 +201,12 @@ impl ClipboardWriter {
             }
             DisplayEnvironment::X11 | DisplayEnvironment::Xvfb => {
                 // CLWR-02: xclip with clipboard selection + MIME type
-                // Pass -display explicitly from the current env var.
-                let display_val =
-                    std::env::var("DISPLAY").unwrap_or_else(|_| ":0".to_string());
+                // Pass -display explicitly to avoid depending on process-global DISPLAY.
+                let display_val = self
+                    .display_str
+                    .clone()
+                    .or_else(|| std::env::var("DISPLAY").ok())
+                    .unwrap_or_else(|| ":0".to_string());
                 tokio::process::Command::new("xclip")
                     .args([
                         "-selection",
