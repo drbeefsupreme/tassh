@@ -16,10 +16,7 @@ pub enum IpcMessage {
         ssh_pid: u32,
     },
     /// Sent by LocalCommand on SSH disconnect (optional, primary detection is via pidfd).
-    Disconnect {
-        hostname: String,
-        ssh_pid: u32,
-    },
+    Disconnect { hostname: String, ssh_pid: u32 },
     /// Sent by `tassh status` CLI invocation.
     StatusRequest,
     /// Sent by hidden `tassh inject` command for deterministic E2E fan-out tests.
@@ -60,7 +57,10 @@ mod tests {
         let json = serde_json::to_string(&msg).expect("serialize failed");
         // Verify serde tag produces {"type":"Connect",...}
         assert!(json.contains(r#""type":"Connect""#), "json={json}");
-        assert!(json.contains(r#""hostname":"myhost.example.com""#), "json={json}");
+        assert!(
+            json.contains(r#""hostname":"myhost.example.com""#),
+            "json={json}"
+        );
         assert!(json.contains(r#""port":22"#), "json={json}");
         assert!(json.contains(r#""ssh_pid":12345"#), "json={json}");
 

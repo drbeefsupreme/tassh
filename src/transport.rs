@@ -3,10 +3,7 @@
 //! Provides [`server`] (listening end) and [`client`] (connecting end with auto-reconnect),
 //! plus helpers for frame framing over TCP and TCP keepalive configuration.
 
-use std::{
-    io,
-    time::Duration,
-};
+use std::{io, time::Duration};
 
 use socket2::{SockRef, TcpKeepalive};
 use tokio::{
@@ -85,16 +82,13 @@ pub async fn recv_frame(reader: &mut OwnedReadHalf) -> Result<Frame, TransportEr
 
     let payload_len = u32::from_be_bytes([header[4], header[5], header[6], header[7]]) as usize;
     let mut payload = vec![0u8; payload_len];
-    reader
-        .read_exact(&mut payload)
-        .await
-        .map_err(|e| {
-            if e.kind() == io::ErrorKind::UnexpectedEof {
-                TransportError::ConnectionClosed
-            } else {
-                TransportError::Io(e)
-            }
-        })?;
+    reader.read_exact(&mut payload).await.map_err(|e| {
+        if e.kind() == io::ErrorKind::UnexpectedEof {
+            TransportError::ConnectionClosed
+        } else {
+            TransportError::Io(e)
+        }
+    })?;
 
     let mut full = Vec::with_capacity(HEADER_LEN + payload_len);
     full.extend_from_slice(&header);
