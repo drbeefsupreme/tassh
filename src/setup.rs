@@ -86,16 +86,50 @@ fn tassh_remote_unit(bind: &str, port: u16) -> String {
 // Shell snippet
 // ---------------------------------------------------------------------------
 
-fn shell_snippet_command(shell: &str) -> String {
-    format!(
-        r#"cat >> ~/{shell} << 'EOF'
-
-# tassh: auto-export DISPLAY in SSH sessions
+fn shell_snippet() -> &'static str {
+    r#"# tassh: auto-export DISPLAY in SSH sessions
 if [ -n "$SSH_CONNECTION" ] && [ -f "$HOME/.tassh/display" ]; then
     . "$HOME/.tassh/display"
 fi
-EOF"#
-    )
+"#
+}
+
+fn ensure_shell_snippet(shell: &str) -> anyhow::Result<bool> {
+    let path = home_dir().join(shell);
+    let marker = "# tassh: auto-export DISPLAY in SSH sessions";
+
+    let mut content = if path.exists() {
+        std::fs::read_to_string(&path)
+            .with_context(|| format!("failed to read {}", path.display()))?
+    } else {
+        String::new()
+    };
+
+    if content.contains(marker) {
+        return Ok(false);
+    }
+
+    if !content.is_empty() && !content.ends_with('\n') {
+        content.push('\n');
+    }
+    content.push('\n');
+    content.push_str(shell_snippet());
+
+    std::fs::write(&path, content)
+        .with_context(|| format!("failed to write {}", path.display()))?;
+    Ok(true)
+}
+
+fn install_shell_snippets() {
+    println!();
+    println!("Ensuring SSH display hook in shell profiles:");
+    for shell in [".zshrc", ".zprofile", ".bashrc"] {
+        match ensure_shell_snippet(shell) {
+            Ok(true) => println!("  updated ~/{shell}"),
+            Ok(false) => println!("  unchanged ~/{shell}"),
+            Err(e) => eprintln!("warning: failed to update ~/{shell}: {e}"),
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -157,14 +191,7 @@ fn run_setup(service_name: &str, unit_content: &str) -> anyhow::Result<()> {
         }
     }
 
-    println!();
-    println!("Run one of these to add the DISPLAY snippet to your shell profile:");
-    println!();
-    println!("# For zsh:");
-    println!("{}", shell_snippet_command(".zshrc"));
-    println!();
-    println!("# For bash:");
-    println!("{}", shell_snippet_command(".bashrc"));
+    install_shell_snippets();
     println!();
     println!(
         "To follow logs: journalctl --user -u {} -f",
@@ -312,20 +339,7 @@ pub fn run_setup_daemon(args: &SetupDaemonArgs) -> anyhow::Result<()> {
         println!("Created ~/.ssh/config with LocalCommand stanza");
     }
 
-    // Print migration instructions for existing users.
-    println!();
-    println!("If you previously used tassh-local.service or tassh-remote.service:");
-    println!("  systemctl --user disable --now tassh-local.service tassh-remote.service");
-    println!();
-
-    // Print shell snippet instructions.
-    println!("Run one of these to add the DISPLAY snippet to your shell profile:");
-    println!();
-    println!("# For zsh:");
-    println!("{}", shell_snippet_command(".zshrc"));
-    println!();
-    println!("# For bash:");
-    println!("{}", shell_snippet_command(".bashrc"));
+    install_shell_snippets();
     println!();
 
     println!("To follow logs: journalctl --user -u {} -f", service_name);
