@@ -252,11 +252,7 @@ fn setup_ssh_config(yes: bool) -> anyhow::Result<()> {
         }
     }
 
-    let do_it = yes
-        || prompt_yes_no(
-            "Add the tassh LocalCommand hook to ~/.ssh/config?",
-            true,
-        );
+    let do_it = yes || prompt_yes_no("Add the tassh LocalCommand hook to ~/.ssh/config?", true);
 
     if do_it {
         if ssh_config_path.exists() {
