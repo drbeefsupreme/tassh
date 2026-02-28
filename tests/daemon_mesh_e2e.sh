@@ -181,6 +181,7 @@ start_daemon node-b
 log "test 1: first session connects, second session reuses the same daemon connection"
 PID_B1="$(start_ssh_session_from_a node-b ssh-b-1)"
 wait_for 25 "node-a syncing to node-b after first session" status_has node-a "node-b -- syncing (1 SSH session)"
+wait_for 25 "node-b reports inbound session from node-a" status_has node-b "syncing (1 SSH session)"
 assert_eq "1" "$(count_tassh node-a)" "node-a should have exactly one daemon process"
 assert_eq "1" "$(count_tassh node-b)" "node-b should have exactly one daemon process"
 ESTABLISHED_BEFORE="$(count_established_inbound node-b)"
@@ -188,6 +189,7 @@ assert_eq "1" "${ESTABLISHED_BEFORE}" "node-b should have one established tassh 
 
 PID_B2="$(start_ssh_session_from_a node-b ssh-b-2)"
 wait_for 25 "node-a shows two sessions to node-b" status_has node-a "node-b -- syncing (2 SSH sessions)"
+wait_for 25 "node-b still reports inbound syncing session" status_has node-b "syncing (1 SSH session)"
 ESTABLISHED_AFTER="$(count_established_inbound node-b)"
 assert_eq "${ESTABLISHED_BEFORE}" "${ESTABLISHED_AFTER}" "second SSH session must not create a second daemon TCP connection"
 

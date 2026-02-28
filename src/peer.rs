@@ -18,6 +18,8 @@ pub struct PeerRegistry {
 pub struct PeerState {
     /// Number of active SSH sessions to this host
     pub session_count: usize,
+    /// Number of active inbound tassh TCP connections from this host
+    pub inbound_connections: usize,
     /// Whether clipboard TCP connection is established and active
     pub connected: bool,
     /// True if a connection attempt is in progress (prevents races)
@@ -47,6 +49,7 @@ impl PeerRegistry {
     pub fn get_or_create(&mut self, hostname: &str) -> &mut PeerState {
         self.peers.entry(hostname.to_owned()).or_insert_with(|| PeerState {
             session_count: 0,
+            inbound_connections: 0,
             connected: false,
             connecting: false,
             probe_failed: false,
@@ -72,16 +75,21 @@ impl PeerRegistry {
     }
 
     /// List all peers for status command.
-    /// Only returns peers with active SSH sessions.
+    /// Returns peers with active outbound SSH sessions or inbound tassh sessions.
     pub fn list_peers(&self) -> Vec<crate::ipc::PeerInfo> {
         self.peers
             .iter()
-            .filter(|(_, state)| state.session_count > 0)
-            .map(|(hostname, state)| crate::ipc::PeerInfo {
-                hostname: hostname.clone(),
-                connected: state.connected,
-                no_daemon: state.probe_failed,
-                session_count: state.session_count,
+            .filter_map(|(hostname, state)| {
+                let total_sessions = state.session_count + state.inbound_connections;
+                if total_sessions == 0 {
+                    return None;
+                }
+                Some(crate::ipc::PeerInfo {
+                    hostname: hostname.clone(),
+                    connected: state.connected || state.inbound_connections > 0,
+                    no_daemon: state.probe_failed && state.inbound_connections == 0,
+                    session_count: total_sessions,
+                })
             })
             .collect()
     }

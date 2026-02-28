@@ -552,7 +552,7 @@ async fn start_peer_connection(
 /// Run the TCP server that accepts incoming connections (we act as receiver).
 async fn run_tcp_server(
     port: u16,
-    _registry: Arc<Mutex<PeerRegistry>>,
+    registry: Arc<Mutex<PeerRegistry>>,
     display_env: crate::protocol::DisplayEnvironment,
     _clip_tx: broadcast::Sender<Arc<Frame>>,
 ) -> anyhow::Result<()> {
@@ -564,6 +564,14 @@ async fn run_tcp_server(
     loop {
         let (stream, peer_addr) = listener.accept().await?;
         info!("accepted connection from {peer_addr}");
+        let peer_host = peer_addr.ip().to_string();
+
+        {
+            let mut reg = registry.lock().await;
+            let peer = reg.get_or_create(&peer_host);
+            peer.inbound_connections += 1;
+            peer.probe_failed = false;
+        }
 
         if let Err(e) = apply_keepalive(&stream) {
             warn!("failed to set keepalive: {e}");
@@ -571,6 +579,8 @@ async fn run_tcp_server(
 
         let (mut reader, writer) = stream.into_split();
         let mut clip_writer = ClipboardWriter::new(display_env);
+        let registry_for_cleanup = registry.clone();
+        let peer_host_for_cleanup = peer_host.clone();
 
         tokio::spawn(async move {
             // Keep write half alive so connected peers do not see immediate EOF.
@@ -593,6 +603,11 @@ async fn run_tcp_server(
                         break;
                     }
                 }
+            }
+
+            let mut reg = registry_for_cleanup.lock().await;
+            if let Some(peer) = reg.get_mut(&peer_host_for_cleanup) {
+                peer.inbound_connections = peer.inbound_connections.saturating_sub(1);
             }
         });
     }
