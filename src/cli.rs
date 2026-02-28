@@ -20,6 +20,9 @@ pub enum Commands {
     Notify(NotifyArgs),
     /// Show daemon status and active peer connections
     Status,
+    /// Inject a PNG frame into daemon broadcast (hidden; used by E2E harness)
+    #[command(hide = true)]
+    Inject(InjectArgs),
     /// Install and configure tassh as a systemd user service
     Setup {
         #[command(subcommand)]
@@ -72,6 +75,13 @@ pub struct NotifyArgs {
     /// PID of the SSH process (from $PPID in LocalCommand)
     #[arg(long)]
     pub ssh_pid: u32,
+}
+
+#[derive(Debug, Parser)]
+pub struct InjectArgs {
+    /// PNG file to broadcast to all connected peers.
+    #[arg(long)]
+    pub png_file: String,
 }
 
 #[derive(Debug, Subcommand)]

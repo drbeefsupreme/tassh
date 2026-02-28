@@ -37,7 +37,7 @@ async fn main() {
             // Spawn clipboard watcher — polls local clipboard, wraps PNG bytes in Frame,
             // sends over mpsc channel to the transport client.
             let watch_handle = tokio::spawn(async move {
-                if let Err(e) = clipboard::watch_clipboard(tx).await {
+                if let Err(e) = clipboard::watch_clipboard(tx, None, None).await {
                     tracing::error!("clipboard watcher error: {e}");
                 }
             });
@@ -80,16 +80,15 @@ async fn main() {
             }
 
             // Set up SIGTERM handler for clean shutdown.
-            let mut sigterm = match tokio::signal::unix::signal(
-                tokio::signal::unix::SignalKind::terminate(),
-            ) {
-                Ok(s) => s,
-                Err(e) => {
-                    eprintln!("failed to install SIGTERM handler: {e}");
-                    display_mgr.shutdown().await;
-                    std::process::exit(1);
-                }
-            };
+            let mut sigterm =
+                match tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate()) {
+                    Ok(s) => s,
+                    Err(e) => {
+                        eprintln!("failed to install SIGTERM handler: {e}");
+                        display_mgr.shutdown().await;
+                        std::process::exit(1);
+                    }
+                };
 
             // Run server loop; handle SIGTERM and Ctrl-C for clean shutdown.
             tokio::select! {
@@ -127,6 +126,12 @@ async fn main() {
         Commands::Status => {
             if let Err(e) = run_status().await {
                 eprintln!("status error: {e}");
+                std::process::exit(1);
+            }
+        }
+        Commands::Inject(args) => {
+            if let Err(e) = send_inject(&args).await {
+                eprintln!("inject error: {e}");
                 std::process::exit(1);
             }
         }
@@ -173,6 +178,21 @@ async fn send_notify(args: &cli::NotifyArgs) -> anyhow::Result<()> {
     Ok(())
 }
 
+/// Inject a PNG frame into daemon broadcast for deterministic test fan-out.
+async fn send_inject(args: &cli::InjectArgs) -> anyhow::Result<()> {
+    let socket_path = daemon::socket_path();
+    let png_bytes = tokio::fs::read(&args.png_file).await?;
+
+    let stream = UnixStream::connect(&socket_path).await?;
+    let msg = ipc::IpcMessage::InjectFrame { png_bytes };
+    let mut json = serde_json::to_vec(&msg)?;
+    json.push(b'\n');
+
+    let (_, mut writer) = stream.into_split();
+    writer.write_all(&json).await?;
+    Ok(())
+}
+
 /// Query daemon status and print peer connections.
 async fn run_status() -> anyhow::Result<()> {
     let socket_path = daemon::socket_path();
@@ -206,11 +226,11 @@ async fn run_status() -> anyhow::Result<()> {
         for peer in response.peers {
             // Status reflects actual clipboard sync state
             let status = if peer.connected {
-                "syncing"  // Clipboard TCP connection is active
+                "syncing" // Clipboard TCP connection is active
             } else if peer.no_daemon {
-                "no daemon"  // Remote doesn't have tassh running
+                "no daemon" // Remote doesn't have tassh running
             } else {
-                "probing"  // Still checking for remote daemon
+                "probing" // Still checking for remote daemon
             };
             println!(
                 "  {} -- {} ({} SSH session{})",

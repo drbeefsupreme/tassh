@@ -223,11 +223,7 @@ async fn clean_stale_xvfb_locks() {
         if !alive {
             let _ = tokio::fs::remove_file(&lock_path).await;
             let _ = tokio::fs::remove_file(&socket_path).await;
-            tracing::info!(
-                "removed stale Xvfb lock: {} (dead PID {})",
-                lock_path,
-                pid
-            );
+            tracing::info!("removed stale Xvfb lock: {} (dead PID {})", lock_path, pid);
         } else {
             tracing::debug!("display: /tmp/.X{n}-lock PID {pid} is alive, not removing");
         }
@@ -242,7 +238,14 @@ async fn publish_display(display_str: &str) -> anyhow::Result<()> {
             .await
             .with_context(|| format!("failed to create {}", parent.display()))?;
     }
-    let content = format!("export DISPLAY={display_str}\n");
+    // Force SSH shells that source this file to use the X11 clipboard on the
+    // daemon-managed Xvfb display. Wayland vars can cause clipboard clients
+    // to pick an unavailable compositor socket inside SSH sessions.
+    let content = format!(
+        "export DISPLAY={display_str}\n\
+unset WAYLAND_DISPLAY\n\
+unset WAYLAND_SOCKET\n"
+    );
     tokio::fs::write(&path, &content)
         .await
         .with_context(|| format!("failed to write {}", path.display()))?;
@@ -253,14 +256,19 @@ async fn publish_display(display_str: &str) -> anyhow::Result<()> {
 /// Returns the path `$HOME/.tassh/display`, falling back to `/root` if `$HOME` is unset.
 fn display_file_path() -> std::path::PathBuf {
     let home = std::env::var("HOME").unwrap_or_else(|_| "/root".to_string());
-    std::path::PathBuf::from(home).join(".tassh").join("display")
+    std::path::PathBuf::from(home)
+        .join(".tassh")
+        .join("display")
 }
 
 /// Background task that monitors Xvfb and auto-restarts it on unexpected exit.
 ///
 /// Exponential backoff: 2s, 4s, 8s, 16s, 32s. Gives up after 5 failed attempts
 /// and calls `std::process::exit(1)`.
-async fn monitor_xvfb(child_handle: Arc<Mutex<Option<tokio::process::Child>>>, display_str: String) {
+async fn monitor_xvfb(
+    child_handle: Arc<Mutex<Option<tokio::process::Child>>>,
+    display_str: String,
+) {
     let mut attempts: u32 = 0;
     const MAX_ATTEMPTS: u32 = 5;
 
@@ -292,9 +300,7 @@ async fn monitor_xvfb(child_handle: Arc<Mutex<Option<tokio::process::Child>>>, d
         }
 
         let backoff_secs = 2u64.pow(attempts);
-        tracing::info!(
-            "Xvfb restart attempt {attempts}/{MAX_ATTEMPTS} in {backoff_secs}s"
-        );
+        tracing::info!("Xvfb restart attempt {attempts}/{MAX_ATTEMPTS} in {backoff_secs}s");
         tokio::time::sleep(tokio::time::Duration::from_secs(backoff_secs)).await;
 
         // Re-spawn Xvfb.

@@ -39,13 +39,10 @@ async fn test_frame_traversal_loopback() {
     send_frame(&mut writer, &frame_out).await.unwrap();
 
     // Wait for the server to echo it back through the oneshot channel.
-    let frame_in = tokio::time::timeout(
-        std::time::Duration::from_secs(5),
-        oneshot_rx,
-    )
-    .await
-    .expect("timed out waiting for frame")
-    .expect("oneshot channel closed");
+    let frame_in = tokio::time::timeout(std::time::Duration::from_secs(5), oneshot_rx)
+        .await
+        .expect("timed out waiting for frame")
+        .expect("oneshot channel closed");
 
     assert_eq!(frame_in.frame_type, FRAME_TYPE_PNG);
     assert_eq!(frame_in.payload, payload);
@@ -110,13 +107,10 @@ async fn test_reconnect_after_server_restart() {
         .unwrap();
 
     // Verify the frame arrives intact.
-    let frame_in = tokio::time::timeout(
-        std::time::Duration::from_secs(5),
-        oneshot_rx,
-    )
-    .await
-    .expect("timed out waiting for frame after reconnect")
-    .expect("oneshot channel closed");
+    let frame_in = tokio::time::timeout(std::time::Duration::from_secs(5), oneshot_rx)
+        .await
+        .expect("timed out waiting for frame after reconnect")
+        .expect("oneshot channel closed");
 
     assert_eq!(frame_in.frame_type, FRAME_TYPE_PNG);
     assert_eq!(frame_in.payload, payload);

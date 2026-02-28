@@ -7,6 +7,8 @@
 //! - [`check_clipboard_tools`] — called at daemon startup to verify required tools are present.
 
 use std::io::Cursor;
+use std::process::Stdio;
+use std::time::Duration;
 
 use anyhow::anyhow;
 use image::{ImageFormat, RgbaImage};
@@ -32,7 +34,21 @@ use crate::protocol::{DisplayEnvironment, Frame};
 ///
 /// Returns immediately if no display server is found (`WAYLAND_DISPLAY` and `DISPLAY` are
 /// both unset/empty) or if the clipboard backend fails to initialise.
-pub async fn watch_clipboard(tx: tokio::sync::mpsc::Sender<Frame>) -> anyhow::Result<()> {
+pub async fn watch_clipboard(
+    tx: tokio::sync::mpsc::Sender<Frame>,
+    display_override: Option<String>,
+    wayland_display_override: Option<String>,
+) -> anyhow::Result<()> {
+    // Explicit overrides are used by daemon mode so the watcher does not rely on
+    // process-global env mutation on a live async runtime.
+    if display_override.is_some() || wayland_display_override.is_some() {
+        return watch_clipboard_with_command(tx, display_override, wayland_display_override).await;
+    }
+
+    watch_clipboard_with_arboard(tx).await
+}
+
+async fn watch_clipboard_with_arboard(tx: tokio::sync::mpsc::Sender<Frame>) -> anyhow::Result<()> {
     // --- Display auto-detection (CLRD-04) ---
     if let Ok(wd) = std::env::var("WAYLAND_DISPLAY") {
         if !wd.is_empty() {
@@ -45,10 +61,9 @@ pub async fn watch_clipboard(tx: tokio::sync::mpsc::Sender<Frame>) -> anyhow::Re
     }
 
     // --- Initialise arboard inside spawn_blocking (X11 backend is !Send + blocking I/O) ---
-    let mut clipboard =
-        tokio::task::spawn_blocking(|| arboard::Clipboard::new())
-            .await
-            .map_err(|e| anyhow!("spawn_blocking panicked: {e}"))??;
+    let mut clipboard = tokio::task::spawn_blocking(|| arboard::Clipboard::new())
+        .await
+        .map_err(|e| anyhow!("spawn_blocking panicked: {e}"))??;
 
     // Provide actionable error if backend failed to connect.
     // (arboard surfaces this as an error from Clipboard::new(), already propagated above.)
@@ -95,10 +110,7 @@ pub async fn watch_clipboard(tx: tokio::sync::mpsc::Sender<Frame>) -> anyhow::Re
                     match rgba_to_png(img.width as u32, img.height as u32, &img.bytes) {
                         Ok(png_bytes) => {
                             let kb = png_bytes.len() / 1024;
-                            tracing::info!(
-                                "clipboard image captured ({} KB), sending",
-                                kb
-                            );
+                            tracing::info!("clipboard image captured ({} KB), sending", kb);
                             // Wrap in Frame and send over the channel (blocking, since we're in a blocking thread).
                             if tx.blocking_send(Frame::new_png(png_bytes)).is_err() {
                                 // Receiver dropped — caller shut down, exit cleanly.
@@ -122,6 +134,113 @@ pub async fn watch_clipboard(tx: tokio::sync::mpsc::Sender<Frame>) -> anyhow::Re
     .map_err(|e| anyhow!("clipboard watch task panicked: {e}"))?;
 
     result
+}
+
+async fn watch_clipboard_with_command(
+    tx: tokio::sync::mpsc::Sender<Frame>,
+    display_override: Option<String>,
+    wayland_display_override: Option<String>,
+) -> anyhow::Result<()> {
+    let display = display_override.filter(|v| !v.is_empty());
+    let wayland_display = wayland_display_override.filter(|v| !v.is_empty());
+
+    let backend = if let Some(wd) = wayland_display {
+        tracing::info!("clipboard: using Wayland ({wd}) via wl-paste");
+        WatchBackend::Wayland {
+            wayland_display: wd,
+        }
+    } else if let Some(dpy) = display {
+        tracing::info!("clipboard: using X11 ({dpy}) via xclip");
+        WatchBackend::X11 { display: dpy }
+    } else {
+        return Err(anyhow!(
+            "No display server found. Set WAYLAND_DISPLAY or DISPLAY."
+        ));
+    };
+
+    let mut last_hash: Option<[u8; 32]> = None;
+
+    // Startup-skip: sample current clipboard image without forwarding it.
+    if let Some(png) = read_clipboard_png(&backend).await? {
+        last_hash = Some(content_hash(&png));
+        tracing::debug!(
+            "clipboard: startup snapshot recorded ({} KB), not sending",
+            png.len() / 1024
+        );
+    } else {
+        tracing::debug!("clipboard: no image on clipboard at startup");
+    }
+
+    loop {
+        tokio::time::sleep(Duration::from_millis(500)).await;
+
+        match read_clipboard_png(&backend).await {
+            Ok(Some(png_bytes)) => {
+                let hash = content_hash(&png_bytes);
+                if Some(hash) == last_hash {
+                    tracing::debug!("clipboard: image unchanged (hash match), skipping");
+                    continue;
+                }
+
+                let kb = png_bytes.len() / 1024;
+                tracing::info!("clipboard image captured ({} KB), sending", kb);
+                if tx.send(Frame::new_png(png_bytes)).await.is_err() {
+                    tracing::debug!("clipboard: tx closed, stopping watch loop");
+                    return Ok(());
+                }
+                last_hash = Some(hash);
+            }
+            Ok(None) => {
+                tracing::debug!("clipboard: no image on clipboard");
+            }
+            Err(e) => {
+                tracing::warn!("clipboard: command read failed: {e}");
+            }
+        }
+    }
+}
+
+enum WatchBackend {
+    X11 { display: String },
+    Wayland { wayland_display: String },
+}
+
+async fn read_clipboard_png(backend: &WatchBackend) -> anyhow::Result<Option<Vec<u8>>> {
+    let mut command = match backend {
+        WatchBackend::X11 { display } => {
+            let mut cmd = tokio::process::Command::new("xclip");
+            cmd.args([
+                "-selection",
+                "clipboard",
+                "-t",
+                "image/png",
+                "-o",
+                "-display",
+                display,
+            ]);
+            cmd
+        }
+        WatchBackend::Wayland { wayland_display } => {
+            let mut cmd = tokio::process::Command::new("wl-paste");
+            cmd.args(["--type", "image/png", "--no-newline"]);
+            cmd.env("WAYLAND_DISPLAY", wayland_display);
+            cmd.env_remove("DISPLAY");
+            cmd
+        }
+    };
+    command.stdin(Stdio::null());
+    command.stderr(Stdio::null());
+
+    let output = match tokio::time::timeout(Duration::from_secs(2), command.output()).await {
+        Ok(result) => result?,
+        Err(_) => return Ok(None),
+    };
+
+    if !output.status.success() || output.stdout.is_empty() {
+        return Ok(None);
+    }
+
+    Ok(Some(output.stdout))
 }
 
 /// Check that `$DISPLAY` is set and non-empty; return a clear error if not.
@@ -153,14 +272,17 @@ pub struct ClipboardWriter {
 
     /// Which display environment we're writing to.
     display: DisplayEnvironment,
+    /// Explicit display string for X11/Xvfb writes (e.g. ":0"), if provided.
+    display_str: Option<String>,
 }
 
 impl ClipboardWriter {
     /// Create a new writer for the given display environment.
-    pub fn new(display: DisplayEnvironment) -> Self {
+    pub fn new(display: DisplayEnvironment, display_str: Option<String>) -> Self {
         Self {
             current_child: None,
             display,
+            display_str,
         }
     }
 
@@ -190,7 +312,9 @@ impl ClipboardWriter {
                     .spawn()
                     .map_err(|e| {
                         if e.kind() == std::io::ErrorKind::NotFound {
-                            anyhow!("wl-copy not found. Install with: sudo apt install wl-clipboard")
+                            anyhow!(
+                                "wl-copy not found. Install with: sudo apt install wl-clipboard"
+                            )
                         } else {
                             anyhow!("failed to spawn wl-copy: {e}")
                         }
@@ -198,9 +322,12 @@ impl ClipboardWriter {
             }
             DisplayEnvironment::X11 | DisplayEnvironment::Xvfb => {
                 // CLWR-02: xclip with clipboard selection + MIME type
-                // Pass -display explicitly from the current env var.
-                let display_val =
-                    std::env::var("DISPLAY").unwrap_or_else(|_| ":0".to_string());
+                // Pass -display explicitly to avoid depending on process-global DISPLAY.
+                let display_val = self
+                    .display_str
+                    .clone()
+                    .or_else(|| std::env::var("DISPLAY").ok())
+                    .unwrap_or_else(|| ":0".to_string());
                 tokio::process::Command::new("xclip")
                     .args([
                         "-selection",
@@ -228,9 +355,10 @@ impl ClipboardWriter {
 
         // --- Pipe PNG data to stdin (CLWR-01) ---
         if let Some(mut stdin) = child.stdin.take() {
-            stdin.write_all(png_bytes).await.map_err(|e| {
-                anyhow!("failed to write PNG to clipboard subprocess stdin: {e}")
-            })?;
+            stdin
+                .write_all(png_bytes)
+                .await
+                .map_err(|e| anyhow!("failed to write PNG to clipboard subprocess stdin: {e}"))?;
             // Drop stdin — signals EOF so the subprocess knows we're done sending data.
         }
 

@@ -99,8 +99,7 @@ impl Frame {
         }
 
         let frame_type = data[3];
-        let expected_len =
-            u32::from_be_bytes([data[4], data[5], data[6], data[7]]) as usize;
+        let expected_len = u32::from_be_bytes([data[4], data[5], data[6], data[7]]) as usize;
 
         let available = data.len() - HEADER_LEN;
         if available != expected_len {
