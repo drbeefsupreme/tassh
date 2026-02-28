@@ -9,6 +9,7 @@ IMAGE_NAME="${TASSH_E2E_IMAGE:-tassh-e2e-node:latest}"
 NETWORK_NAME="tassh-e2e-net"
 PORT=9877
 NODES=(node-a node-b node-c node-d)
+DISPLAY_MODES=(headless x11 wayland)
 
 log() {
   printf '[mesh-e2e] %s\n' "$*"
@@ -83,7 +84,24 @@ daemon_running() {
 
 start_daemon() {
   local node="$1"
-  docker_exec "${node}" "pkill -x tassh >/dev/null 2>&1 || true; rm -rf /root/.tassh; nohup env RUST_LOG=info /usr/local/bin/tassh daemon --port ${PORT} >/tmp/tassh-daemon.log 2>&1 &"
+  local mode="${2:-headless}"
+  local env_prefix=""
+  case "${mode}" in
+    headless)
+      env_prefix="DISPLAY= WAYLAND_DISPLAY="
+      ;;
+    x11)
+      env_prefix="DISPLAY=:99 WAYLAND_DISPLAY="
+      ;;
+    wayland)
+      env_prefix="DISPLAY= WAYLAND_DISPLAY=wayland-1"
+      ;;
+    *)
+      log "unknown display mode: ${mode}"
+      return 1
+      ;;
+  esac
+  docker_exec "${node}" "pkill -9 -x tassh >/dev/null 2>&1 || true; rm -rf /root/.tassh; nohup env ${env_prefix} RUST_LOG=info /usr/local/bin/tassh daemon --port ${PORT} >/tmp/tassh-daemon.log 2>&1 &"
   wait_for 25 "daemon ready on ${node}" daemon_running "${node}"
 }
 
@@ -231,5 +249,27 @@ wait_for 30 "node-a eventually syncs with node-d after daemon start" status_has 
 
 kill_pid_on_a "${PID_D1}"
 wait_for 25 "node-d peer removed after final session closes" status_not_has node-a "node-d --"
+
+log "test 4: image paste matrix across local/remote display modes"
+for local_mode in "${DISPLAY_MODES[@]}"; do
+  for remote_mode in "${DISPLAY_MODES[@]}"; do
+    label="matrix-${local_mode}-${remote_mode}"
+    log "matrix case: local=${local_mode}, remote=${remote_mode}"
+
+    start_daemon node-a "${local_mode}"
+    start_daemon node-b "${remote_mode}"
+
+    pid="$(start_ssh_session_from_a node-b "${label}")"
+    wait_for 25 "${label}: node-a syncing to node-b" status_has node-a "node-b -- syncing (1 SSH session)"
+    wait_for 25 "${label}: node-b shows inbound syncing session" status_has node-b "syncing (1 SSH session)"
+
+    docker cp "${CLIP_PNG}" node-a:/tmp/clip.png
+    docker_exec node-a "/usr/local/bin/tassh inject --png-file /tmp/clip.png"
+    wait_for 30 "${label}: node-b clipboard hash matches source" clipboard_hash_matches node-b "${EXPECTED_HASH}"
+
+    kill_pid_on_a "${pid}"
+    wait_for 25 "${label}: node-a peer removed after session closes" status_not_has node-a "node-b --"
+  done
+done
 
 log "all daemon mesh e2e assertions passed"
