@@ -3,42 +3,45 @@ name: Claude Code Review
 on:
   pull_request:
     types: [opened, synchronize, ready_for_review, reopened]
-    # Optional: Only run on specific file changes
-    # paths:
-    #   - "src/**/*.ts"
-    #   - "src/**/*.tsx"
-    #   - "src/**/*.js"
-    #   - "src/**/*.jsx"
+
+permissions:
+  contents: read
+  pull-requests: write
+  issues: read
+  id-token: write
+  actions: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
 
 jobs:
-  claude-review:
-    # Optional: Filter by PR author
-    # if: |
-    #   github.event.pull_request.user.login == 'external-contributor' ||
-    #   github.event.pull_request.user.login == 'new-developer' ||
-    #   github.event.pull_request.author_association == 'FIRST_TIME_CONTRIBUTOR'
-
+  claude-code-review:
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      pull-requests: read
-      issues: read
-      id-token: write
-
+    if: github.event.pull_request.draft == false
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 1
-
       - name: Run Claude Code Review
-        id: claude-review
         uses: anthropics/claude-code-action@v1
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
-          plugin_marketplaces: 'https://github.com/anthropics/claude-code.git'
-          plugins: 'code-review@claude-code-plugins'
-          prompt: '/code-review:code-review ${{ github.repository }}/pull/${{ github.event.pull_request.number }}'
-          # See https://github.com/anthropics/claude-code-action/blob/main/docs/usage.md
-          # or https://code.claude.com/docs/en/cli-reference for available options
+          allowed_bots: "claude[bot],github-actions[bot]"
+          claude_args: '--allowedTools "Bash(gh pr view:*),Bash(gh api:*),Read,Glob,Grep"'
+          prompt: |
+            Review this pull request for:
+            1. Correctness and logic errors
+            2. Security vulnerabilities
+            3. Breaking changes
 
+            Post review comments inline on the diff using the GitHub API.
+            Be concise. Focus on significant issues only.
+            # CUSTOMIZE: Add stack-specific review criteria here
+
+            After posting inline comments, submit a formal review decision using the GitHub API.
+            Determine whether blocking issues were found (significant bugs, security vulnerabilities, or breaking changes).
+            If no blocking issues:
+              gh api repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}/reviews --method POST --field body='LGTM' --field event=APPROVE
+            If blocking issues found:
+              gh api repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}/reviews --method POST --field body='Changes required: [summarize issues]' --field event=REQUEST_CHANGES
+            Only use REQUEST_CHANGES for significant bugs, security vulnerabilities, or breaking changes. Use APPROVE for minor issues, style comments, or suggestions.
+          # CUSTOMIZE: Restrict to read-only tools
+          # claude_args: "--allowedTools Bash(go vet ./...),Bash(go test ./...)"

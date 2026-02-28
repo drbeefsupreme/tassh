@@ -1,0 +1,180 @@
+name: Auto Tag
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: 'Git ref to tag (defaults to HEAD of main)'
+        required: false
+        default: ''
+
+permissions:
+  contents: write
+  issues: write
+
+jobs:
+  auto-tag:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.inputs.ref || github.sha }}
+          # Use PAT so git push of changelog commit to main is authorized
+          token: ${{ secrets.GH_WORKFLOW_TOKEN }}
+
+      - name: Create semantic version tag
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          EVENT_NAME: ${{ github.event_name }}
+          INPUT_REF: ${{ github.event.inputs.ref }}
+          REF_NAME: ${{ github.ref_name }}
+          SERVER_URL: ${{ github.server_url }}
+          REPOSITORY: ${{ github.repository }}
+          RUN_ID: ${{ github.run_id }}
+        run: |
+          # Guard: for manual dispatch without an explicit ref, we must be on main.
+          # Dispatching from a non-main branch sets github.sha to that branch's HEAD;
+          # the downstream "git push origin main" would then push foreign commits to main.
+          if [ "$EVENT_NAME" = "workflow_dispatch" ] && \
+             [ -z "$INPUT_REF" ] && \
+             [ "$REF_NAME" != "main" ]; then
+            echo "::error::workflow_dispatch must be triggered from main or with an explicit ref input"
+            exit 1
+          fi
+
+          # Guard: for manual dispatch with an explicit ref, ensure the checked-out
+          # commit is an ancestor of origin/main to prevent pushing foreign commits.
+          if [ "$EVENT_NAME" = "workflow_dispatch" ] && [ -n "$INPUT_REF" ]; then
+            git fetch origin main
+            if ! git merge-base --is-ancestor HEAD origin/main; then
+              echo "::error::Provided ref is not on the main branch ancestry; aborting to prevent corrupting main"
+              exit 1
+            fi
+          fi
+
+          # Skip if this is an automated changelog update to prevent recursive triggering
+          HEAD_MSG=$(git log -1 --pretty=%s)
+          if echo "$HEAD_MSG" | grep -qE "^chore: update changelog"; then
+            echo "Skipping: this is an automated changelog update commit"
+            exit 0
+          fi
+
+          # Get latest tag or start at v0.0.0
+          LATEST=$(git tag --sort=-v:refname | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | head -1 || true)
+          LATEST=${LATEST:-v0.0.0}
+          MAJOR=$(echo $LATEST | cut -d. -f1 | tr -d 'v')
+          MINOR=$(echo $LATEST | cut -d. -f2)
+          PATCH=$(echo $LATEST | cut -d. -f3)
+
+          # Analyze all commits since the last tag (handles multi-commit rebase merges)
+          if git rev-parse "$LATEST" >/dev/null 2>&1; then
+            MSGS=$(git log "${LATEST}..HEAD" --pretty=%s)
+          else
+            MSGS=$(git log --pretty=%s)
+          fi
+
+          if [ -z "$MSGS" ]; then
+            echo "No new commits since $LATEST"
+            exit 0
+          fi
+
+          if echo "$MSGS" | grep -qE "BREAKING CHANGE|^[a-z]+(\(.+\))?!:"; then
+            MAJOR=$((MAJOR + 1)); MINOR=0; PATCH=0
+          elif echo "$MSGS" | grep -qE "^feat(\(.+\))?:"; then
+            MINOR=$((MINOR + 1)); PATCH=0
+          elif echo "$MSGS" | grep -qE "^fix(\(.+\))?:"; then
+            PATCH=$((PATCH + 1))
+          else
+            echo "No version bump needed. Commits since $LATEST:"
+            echo "$MSGS"
+            exit 0
+          fi
+
+          NEW_TAG="v${MAJOR}.${MINOR}.${PATCH}"
+          TODAY=$(date -u +%Y-%m-%d)
+
+          # Build changelog entry from commits since last tag (exclude automated changelog commits)
+          if git rev-parse "$LATEST" >/dev/null 2>&1; then
+            COMMIT_LIST=$(git log "${LATEST}..HEAD" --pretty="- %s" | grep -v "^- chore: update changelog" || true)
+          else
+            COMMIT_LIST=$(git log --pretty="- %s" | grep -v "^- chore: update changelog" || true)
+          fi
+
+          # Prepend new entry to CHANGELOG.md so the tagged commit always contains it
+          {
+            echo "## ${NEW_TAG} — ${TODAY}"
+            echo ""
+            echo "${COMMIT_LIST}"
+            if [ -f CHANGELOG.md ]; then
+              echo ""
+              cat CHANGELOG.md
+            fi
+          } > CHANGELOG.md.new
+          mv CHANGELOG.md.new CHANGELOG.md
+
+          # Commit changelog update to main before creating the tag
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add CHANGELOG.md
+          git commit -m "chore: update changelog for ${NEW_TAG}"
+
+          # Try to sync with origin/main and push the changelog commit.
+          # If a concurrent push caused a conflict, fall back to tagging HEAD
+          # without the changelog commit and file a notification issue.
+          CHANGELOG_PUSHED=true
+          if git pull --rebase origin main; then
+            if git push origin main; then
+              : # success
+            else
+              echo "::warning::git push origin main failed; aborting and tagging HEAD without changelog update"
+              # Undo the changelog commit so we tag the original HEAD
+              git reset --hard HEAD~1
+              CHANGELOG_PUSHED=false
+            fi
+          else
+            echo "::warning::git pull --rebase failed; aborting and tagging HEAD without changelog update"
+            git rebase --abort 2>/dev/null || true
+            # Undo the changelog commit so we tag the original HEAD
+            git reset --hard HEAD~1
+            CHANGELOG_PUSHED=false
+          fi
+
+          # Tag the current HEAD (includes changelog commit if push succeeded)
+          git tag $NEW_TAG
+          git push origin $NEW_TAG
+          echo "Tagged: $NEW_TAG"
+          if gh release create "$NEW_TAG" \
+            --generate-notes \
+            --title "$NEW_TAG"; then
+            echo "Release created: $NEW_TAG"
+          else
+            echo "::warning::gh release create failed for $NEW_TAG; tag is pushed but no GitHub release exists"
+            RELEASE_BODY=$(printf 'The `auto-tag` workflow pushed tag `%s` to the repo but `gh release create` failed (a transient network error, rate limit, or API timeout may have occurred).\n\nThe git tag exists but no GitHub release was created. To retry manually:\n\n```\ngh release create %s --generate-notes --title %s\n```\n\nWorkflow run: %s/%s/actions/runs/%s\n\n@claude please implement this so the factory can retry via: `gh release create %s --generate-notes --title %s`' \
+              "$NEW_TAG" "$NEW_TAG" "$NEW_TAG" \
+              "$SERVER_URL" "$REPOSITORY" "$RUN_ID" \
+              "$NEW_TAG" "$NEW_TAG")
+            gh issue create \
+              --title "Release missing for ${NEW_TAG}: gh release create failed" \
+              --body "$RELEASE_BODY" \
+              || echo "::warning::Failed to create notification issue for missing release"
+          fi
+
+          # Notify if changelog was skipped so a human can update it manually
+          if [ "$CHANGELOG_PUSHED" = "false" ]; then
+            ISSUE_BODY=$(printf 'The `auto-tag` workflow tagged and released `%s` but could not update `CHANGELOG.md` because pushing the changelog commit to `main` failed (a concurrent push or transient network error may have occurred during the workflow run).\n\nThe tag and GitHub release were created from the original HEAD. Please update `CHANGELOG.md` manually or trigger the `changelog.yml` workflow.\n\nWorkflow run: %s/%s/actions/runs/%s\n\n@claude please run the changelog.yml workflow for this tag and close this issue once done.' \
+              "$NEW_TAG" "$SERVER_URL" "$REPOSITORY" "$RUN_ID")
+            EXISTING=$(gh issue list --repo "$REPOSITORY" --state open --limit 100 --json number,title | jq --arg tag "$NEW_TAG" '[.[] | select(.title | contains($tag))] | length')
+            if [ "$EXISTING" -gt 0 ]; then
+              echo "Open 'Changelog skipped' issue for ${NEW_TAG} already exists; skipping duplicate creation"
+            else
+              gh issue create \
+                --title "Changelog skipped for ${NEW_TAG}: failed to push changelog to main" \
+                --body "$ISSUE_BODY" \
+                || echo "::warning::Failed to create notification issue"
+            fi
+          fi
