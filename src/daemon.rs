@@ -10,6 +10,7 @@ use std::time::Duration;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::{TcpStream, UnixListener, UnixStream};
 use tokio::sync::{broadcast, mpsc, Mutex};
+use tokio::time::timeout;
 use tracing::{debug, info, warn};
 
 use crate::clipboard::{watch_clipboard, ClipboardWriter};
@@ -803,10 +804,14 @@ fn reverse_dns_lookup_blocking(peer_ip: IpAddr) -> Option<String> {
 
 /// Resolve the local Tailscale IPv4 address.
 async fn resolve_tailscale_ip() -> anyhow::Result<String> {
-    let output = tokio::process::Command::new("tailscale")
-        .args(["ip", "-4"])
-        .output()
-        .await?;
+    let output = timeout(
+        Duration::from_secs(5),
+        tokio::process::Command::new("tailscale")
+            .args(["ip", "-4"])
+            .output(),
+    )
+    .await
+    .map_err(|_| anyhow::anyhow!("tailscale ip -4 timed out after 5 s - is Tailscale running?"))??;
     let ip = String::from_utf8_lossy(&output.stdout).trim().to_owned();
     if ip.is_empty() {
         anyhow::bail!("tailscale ip -4 returned empty - is Tailscale running?");

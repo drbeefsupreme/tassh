@@ -31,6 +31,9 @@ pub enum TransportError {
     #[error("write timed out (10 s deadline exceeded)")]
     WriteTimeout,
 
+    #[error("tailscale ip -4 timed out after 5 s - is Tailscale running?")]
+    TailscaleTimeout,
+
     #[error("connection closed by peer")]
     ConnectionClosed,
 
@@ -99,10 +102,14 @@ pub async fn recv_frame(reader: &mut OwnedReadHalf) -> Result<Frame, TransportEr
 
 /// Auto-detect the local Tailscale IPv4 address by running `tailscale ip -4`.
 async fn resolve_tailscale_ip() -> Result<String, TransportError> {
-    let output = tokio::process::Command::new("tailscale")
-        .args(["ip", "-4"])
-        .output()
-        .await?;
+    let output = timeout(
+        Duration::from_secs(5),
+        tokio::process::Command::new("tailscale")
+            .args(["ip", "-4"])
+            .output(),
+    )
+    .await
+    .map_err(|_| TransportError::TailscaleTimeout)??;
     let ip = String::from_utf8_lossy(&output.stdout).trim().to_owned();
     Ok(ip)
 }
