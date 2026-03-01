@@ -808,6 +808,7 @@ async fn resolve_tailscale_ip() -> anyhow::Result<String> {
         Duration::from_secs(5),
         tokio::process::Command::new("tailscale")
             .args(["ip", "-4"])
+            .kill_on_drop(true)
             .output(),
     )
     .await
