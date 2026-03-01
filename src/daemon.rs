@@ -396,11 +396,18 @@ async fn handle_connect(
     // Start PID watcher for this SSH session
     let reg_clone = registry.clone();
     let hostname_for_watcher = hostname_owned.clone();
-    tokio::spawn(async move {
+    let pid_watcher_handle = tokio::spawn(async move {
         watch_pid(ssh_pid).await;
         debug!("ssh pid {ssh_pid} exited for {hostname_for_watcher}");
         handle_pid_exit(&hostname_for_watcher, ssh_pid, reg_clone).await;
     });
+    // Store handle so abort loop in handle_pid_exit can cancel it when sessions close
+    {
+        let mut reg = registry.lock().await;
+        if let Some(peer) = reg.get_mut(hostname) {
+            peer.pid_watcher_handles.push(pid_watcher_handle);
+        }
+    }
 
     // If not already connected or connecting, probe and connect
     if need_connect {
@@ -903,14 +910,23 @@ async fn discover_existing_ssh_sessions(
                 }
             };
 
+            let mut pid_watcher_handles = Vec::new();
             for ssh_pid in new_pids {
                 let reg_clone = reg.clone();
                 let hostname_for_watcher = hostname.clone();
-                tokio::spawn(async move {
+                let handle = tokio::spawn(async move {
                     watch_pid(ssh_pid).await;
                     debug!("startup ssh pid {ssh_pid} exited for {hostname_for_watcher}");
                     handle_pid_exit(&hostname_for_watcher, ssh_pid, reg_clone).await;
                 });
+                pid_watcher_handles.push(handle);
+            }
+            // Store handles so abort loop in handle_pid_exit can cancel them when sessions close
+            {
+                let mut r = reg.lock().await;
+                if let Some(peer) = r.get_mut(&hostname) {
+                    peer.pid_watcher_handles.extend(pid_watcher_handles);
+                }
             }
 
             if !should_connect {
