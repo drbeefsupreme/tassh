@@ -726,9 +726,11 @@ fn normalize_peer_hostname(raw: &str) -> String {
 }
 
 async fn reverse_dns_lookup(peer_ip: IpAddr) -> Option<String> {
-    tokio::task::spawn_blocking(move || reverse_dns_lookup_blocking(peer_ip))
+    let task = tokio::task::spawn_blocking(move || reverse_dns_lookup_blocking(peer_ip));
+    tokio::time::timeout(Duration::from_secs(3), task)
         .await
         .ok()
+        .and_then(|res| res.ok())
         .flatten()
 }
 
