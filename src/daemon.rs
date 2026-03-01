@@ -211,8 +211,14 @@ async fn handle_ipc_connection(
     let mut reader = BufReader::new(stream);
     let mut line = String::new();
 
-    if reader.read_line(&mut line).await.unwrap_or(0) == 0 {
-        return;
+    match tokio::time::timeout(Duration::from_secs(5), reader.read_line(&mut line)).await {
+        Ok(Ok(0)) => return,  // EOF
+        Ok(Err(_)) => return, // I/O error
+        Err(_) => {
+            warn!("IPC client timed out waiting for request, closing connection");
+            return;
+        }
+        Ok(Ok(_)) => {} // got a line; continue processing
     }
 
     match serde_json::from_str::<IpcMessage>(&line) {
