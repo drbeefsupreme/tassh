@@ -1062,10 +1062,7 @@ mod tests {
             normalize_ssh_host("my_server_1"),
             Some("my_server_1".to_string())
         );
-        assert_eq!(
-            normalize_ssh_host("k8s_node"),
-            Some("k8s_node".to_string())
-        );
+        assert_eq!(normalize_ssh_host("k8s_node"), Some("k8s_node".to_string()));
     }
 
     #[test]
@@ -1074,10 +1071,7 @@ mod tests {
             normalize_ssh_host("example.com"),
             Some("example.com".to_string())
         );
-        assert_eq!(
-            normalize_ssh_host("my-host"),
-            Some("my-host".to_string())
-        );
+        assert_eq!(normalize_ssh_host("my-host"), Some("my-host".to_string()));
         assert_eq!(
             normalize_ssh_host("HOST.EXAMPLE.COM"),
             Some("host.example.com".to_string())
@@ -1091,10 +1085,7 @@ mod tests {
             Some("docker_host".to_string())
         );
         assert_eq!(normalize_ssh_host("[::1]"), None);
-        assert_eq!(
-            normalize_ssh_host("host:22"),
-            Some("host".to_string())
-        );
+        assert_eq!(normalize_ssh_host("host:22"), Some("host".to_string()));
     }
 
     #[test]
