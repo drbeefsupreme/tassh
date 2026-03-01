@@ -1016,7 +1016,7 @@ fn normalize_ssh_host(raw: &str) -> Option<String> {
 
     if host
         .chars()
-        .all(|c| c.is_ascii_alphanumeric() || c == '.' || c == '-')
+        .all(|c| c.is_ascii_alphanumeric() || c == '.' || c == '-' || c == '_')
     {
         Some(host)
     } else {
@@ -1046,4 +1046,61 @@ async fn discover_local_aliases() -> HashSet<String> {
     }
 
     aliases
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn normalize_ssh_host_accepts_underscore() {
+        assert_eq!(
+            normalize_ssh_host("docker_host"),
+            Some("docker_host".to_string())
+        );
+        assert_eq!(
+            normalize_ssh_host("my_server_1"),
+            Some("my_server_1".to_string())
+        );
+        assert_eq!(
+            normalize_ssh_host("k8s_node"),
+            Some("k8s_node".to_string())
+        );
+    }
+
+    #[test]
+    fn normalize_ssh_host_accepts_standard_names() {
+        assert_eq!(
+            normalize_ssh_host("example.com"),
+            Some("example.com".to_string())
+        );
+        assert_eq!(
+            normalize_ssh_host("my-host"),
+            Some("my-host".to_string())
+        );
+        assert_eq!(
+            normalize_ssh_host("HOST.EXAMPLE.COM"),
+            Some("host.example.com".to_string())
+        );
+    }
+
+    #[test]
+    fn normalize_ssh_host_strips_user_and_brackets() {
+        assert_eq!(
+            normalize_ssh_host("user@docker_host"),
+            Some("docker_host".to_string())
+        );
+        assert_eq!(normalize_ssh_host("[::1]"), None);
+        assert_eq!(
+            normalize_ssh_host("host:22"),
+            Some("host".to_string())
+        );
+    }
+
+    #[test]
+    fn normalize_ssh_host_rejects_path_tokens() {
+        assert_eq!(normalize_ssh_host("/tmp/socket"), None);
+        assert_eq!(normalize_ssh_host("host/path"), None);
+        assert_eq!(normalize_ssh_host(""), None);
+    }
 }
