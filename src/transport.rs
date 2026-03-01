@@ -31,6 +31,9 @@ pub enum TransportError {
     #[error("write timed out (10 s deadline exceeded)")]
     WriteTimeout,
 
+    #[error("read timed out (30 s deadline exceeded)")]
+    ReadTimeout,
+
     #[error("connection closed by peer")]
     ConnectionClosed,
 
@@ -68,27 +71,35 @@ pub async fn send_frame(writer: &mut OwnedWriteHalf, frame: &Frame) -> Result<()
 
 /// Read one [`Frame`] from the reader.
 ///
+/// A 30-second read timeout is applied to both the header read and the payload
+/// read. If the deadline is exceeded [`TransportError::ReadTimeout`] is returned
+/// and the caller should close the connection.
+///
 /// Returns [`TransportError::ConnectionClosed`] when the peer has closed the
 /// connection cleanly (EOF on the 8-byte header read).
 pub async fn recv_frame(reader: &mut OwnedReadHalf) -> Result<Frame, TransportError> {
     let mut header = [0u8; HEADER_LEN];
-    match reader.read_exact(&mut header).await {
-        Ok(_) => {}
-        Err(e) if e.kind() == io::ErrorKind::UnexpectedEof => {
+    match timeout(Duration::from_secs(30), reader.read_exact(&mut header)).await {
+        Ok(Ok(_)) => {}
+        Ok(Err(e)) if e.kind() == io::ErrorKind::UnexpectedEof => {
             return Err(TransportError::ConnectionClosed);
         }
-        Err(e) => return Err(TransportError::Io(e)),
+        Ok(Err(e)) => return Err(TransportError::Io(e)),
+        Err(_) => return Err(TransportError::ReadTimeout),
     }
 
     let payload_len = u32::from_be_bytes([header[4], header[5], header[6], header[7]]) as usize;
     let mut payload = vec![0u8; payload_len];
-    reader.read_exact(&mut payload).await.map_err(|e| {
-        if e.kind() == io::ErrorKind::UnexpectedEof {
-            TransportError::ConnectionClosed
-        } else {
-            TransportError::Io(e)
-        }
-    })?;
+    timeout(Duration::from_secs(30), reader.read_exact(&mut payload))
+        .await
+        .map_err(|_| TransportError::ReadTimeout)?
+        .map_err(|e| {
+            if e.kind() == io::ErrorKind::UnexpectedEof {
+                TransportError::ConnectionClosed
+            } else {
+                TransportError::Io(e)
+            }
+        })?;
 
     let mut full = Vec::with_capacity(HEADER_LEN + payload_len);
     full.extend_from_slice(&header);
