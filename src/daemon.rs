@@ -811,7 +811,9 @@ async fn resolve_tailscale_ip() -> anyhow::Result<String> {
             .output(),
     )
     .await
-    .map_err(|_| anyhow::anyhow!("tailscale ip -4 timed out after 5 s - is Tailscale running?"))??;
+    .map_err(|_| {
+        anyhow::anyhow!("tailscale ip -4 timed out after 5 s - is Tailscale running?")
+    })??;
     let ip = String::from_utf8_lossy(&output.stdout).trim().to_owned();
     if ip.is_empty() {
         anyhow::bail!("tailscale ip -4 returned empty - is Tailscale running?");

@@ -34,6 +34,9 @@ pub enum TransportError {
     #[error("tailscale ip -4 timed out after 5 s - is Tailscale running?")]
     TailscaleTimeout,
 
+    #[error("tailscale ip -4 returned empty - is Tailscale running?")]
+    TailscaleNoIp,
+
     #[error("connection closed by peer")]
     ConnectionClosed,
 
@@ -111,6 +114,9 @@ async fn resolve_tailscale_ip() -> Result<String, TransportError> {
     .await
     .map_err(|_| TransportError::TailscaleTimeout)??;
     let ip = String::from_utf8_lossy(&output.stdout).trim().to_owned();
+    if ip.is_empty() {
+        return Err(TransportError::TailscaleNoIp);
+    }
     Ok(ip)
 }
 
