@@ -609,26 +609,29 @@ async fn run_tcp_server(
     loop {
         let (stream, peer_addr) = listener.accept().await?;
         let peer_ip = peer_addr.ip();
-        let peer_host = resolve_inbound_peer_key(peer_ip, registry.clone()).await;
-        info!("accepted connection from {peer_addr} (peer={peer_host})");
+        let registry_clone = registry.clone();
+        let display_str = display_str.clone();
 
-        {
-            let mut reg = registry.lock().await;
-            let peer = reg.get_or_create(&peer_host);
-            peer.inbound_connections += 1;
-            peer.probe_failed = false;
-        }
-
-        if let Err(e) = apply_keepalive(&stream) {
-            warn!("failed to set keepalive: {e}");
-        }
-
-        let (mut reader, writer) = stream.into_split();
-        let mut clip_writer = ClipboardWriter::new(display_env, Some(display_str.clone()));
-        let registry_for_cleanup = registry.clone();
-        let peer_host_for_cleanup = peer_host.clone();
-
+        // Spawn peer resolution and connection handling so the accept loop is
+        // never blocked waiting for DNS (which can take 30+ seconds).
         tokio::spawn(async move {
+            let peer_host = resolve_inbound_peer_key(peer_ip, registry_clone.clone()).await;
+            info!("accepted connection from {peer_addr} (peer={peer_host})");
+
+            {
+                let mut reg = registry_clone.lock().await;
+                let peer = reg.get_or_create(&peer_host);
+                peer.inbound_connections += 1;
+                peer.probe_failed = false;
+            }
+
+            if let Err(e) = apply_keepalive(&stream) {
+                warn!("failed to set keepalive: {e}");
+            }
+
+            let (mut reader, writer) = stream.into_split();
+            let mut clip_writer = ClipboardWriter::new(display_env, Some(display_str));
+
             // Keep write half alive so connected peers do not see immediate EOF.
             let _writer_guard = writer;
             loop {
@@ -651,8 +654,8 @@ async fn run_tcp_server(
                 }
             }
 
-            let mut reg = registry_for_cleanup.lock().await;
-            if let Some(peer) = reg.get_mut(&peer_host_for_cleanup) {
+            let mut reg = registry_clone.lock().await;
+            if let Some(peer) = reg.get_mut(&peer_host) {
                 peer.inbound_connections = peer.inbound_connections.saturating_sub(1);
             }
         });
