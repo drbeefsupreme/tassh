@@ -174,8 +174,8 @@ pub async fn client(
     let mut backoff: f64 = 1.0;
 
     loop {
-        match TcpStream::connect(&addr).await {
-            Ok(stream) => {
+        match timeout(Duration::from_secs(10), TcpStream::connect(&addr)).await {
+            Ok(Ok(stream)) => {
                 warn!("connected to {addr}");
                 if let Err(e) = apply_keepalive(&stream) {
                     warn!("failed to set keepalive: {e}");
@@ -198,8 +198,11 @@ pub async fn client(
                     }
                 }
             }
-            Err(e) => {
+            Ok(Err(e)) => {
                 warn!("connect failed: {e}; retrying in {backoff:.1}s");
+            }
+            Err(_) => {
+                warn!("connect timed out after 10 s; retrying in {backoff:.1}s");
             }
         }
 
