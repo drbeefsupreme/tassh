@@ -485,9 +485,10 @@ async fn start_peer_connection(
     clip_tx: broadcast::Sender<Arc<Frame>>,
 ) {
     let addr = format!("{hostname}:{port}");
+    const CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
 
-    match TcpStream::connect(&addr).await {
-        Ok(stream) => {
+    match tokio::time::timeout(CONNECT_TIMEOUT, TcpStream::connect(&addr)).await {
+        Ok(Ok(stream)) => {
             if let Err(e) = apply_keepalive(&stream) {
                 warn!("failed to set keepalive for {addr}: {e}");
             }
@@ -582,9 +583,17 @@ async fn start_peer_connection(
                 }
             });
         }
-        Err(e) => {
+        Ok(Err(e)) => {
             warn!("failed to connect to {addr}: {e}");
             // Clear connecting flag on failure
+            let mut reg = registry.lock().await;
+            if let Some(peer) = reg.get_mut(hostname) {
+                peer.connecting = false;
+            }
+        }
+        Err(_elapsed) => {
+            warn!("connection to {addr} timed out after {CONNECT_TIMEOUT:?}");
+            // Clear connecting flag so the reconcile loop can retry promptly
             let mut reg = registry.lock().await;
             if let Some(peer) = reg.get_mut(hostname) {
                 peer.connecting = false;
