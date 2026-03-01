@@ -445,7 +445,7 @@ async fn handle_disconnect(hostname: &str, ssh_pid: u32, registry: Arc<Mutex<Pee
 /// Called when an SSH process exits (detected via pidfd).
 async fn handle_pid_exit(hostname: &str, ssh_pid: u32, registry: Arc<Mutex<PeerRegistry>>) {
     let mut reg = registry.lock().await;
-    if let Some(peer) = reg.get_mut(hostname) {
+    let should_remove = if let Some(peer) = reg.get_mut(hostname) {
         peer.watched_pids.remove(&ssh_pid);
         peer.session_count = peer.session_count.saturating_sub(1);
 
@@ -460,7 +460,18 @@ async fn handle_pid_exit(hostname: &str, ssh_pid: u32, registry: Arc<Mutex<PeerR
             for handle in peer.pid_watcher_handles.drain(..) {
                 handle.abort();
             }
+            // Remove stale entry if no inbound connections remain either
+            peer.inbound_connections == 0
+        } else {
+            false
         }
+    } else {
+        false
+    };
+
+    if should_remove {
+        info!("removing stale peer entry for {hostname}");
+        reg.remove(hostname);
     }
 }
 
@@ -652,8 +663,16 @@ async fn run_tcp_server(
             }
 
             let mut reg = registry_for_cleanup.lock().await;
-            if let Some(peer) = reg.get_mut(&peer_host_for_cleanup) {
+            let should_remove = if let Some(peer) = reg.get_mut(&peer_host_for_cleanup) {
                 peer.inbound_connections = peer.inbound_connections.saturating_sub(1);
+                // Remove stale entry if no SSH sessions remain either
+                peer.inbound_connections == 0 && peer.session_count == 0
+            } else {
+                false
+            };
+            if should_remove {
+                info!("removing stale peer entry for {peer_host_for_cleanup}");
+                reg.remove(&peer_host_for_cleanup);
             }
         });
     }
