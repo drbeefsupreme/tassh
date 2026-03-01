@@ -1,7 +1,6 @@
-//! TCP transport layer (Phase 2)
+//! TCP transport layer helpers.
 //!
-//! Provides [`server`] (listening end) and [`client`] (connecting end with auto-reconnect),
-//! plus helpers for frame framing over TCP and TCP keepalive configuration.
+//! Provides helpers for frame framing over TCP and TCP keepalive configuration.
 
 use std::{io, time::Duration};
 
@@ -10,14 +9,12 @@ use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     net::{
         tcp::{OwnedReadHalf, OwnedWriteHalf},
-        TcpListener, TcpStream,
+        TcpStream,
     },
     time::timeout,
 };
-use tracing::{info, warn};
 
-use crate::clipboard::ClipboardWriter;
-use crate::protocol::{DisplayEnvironment, Frame, FrameError};
+use crate::protocol::{Frame, FrameError};
 
 /// Header length for a tassh frame: 2 magic + 1 version + 1 type + 4 length.
 const HEADER_LEN: usize = 8;
@@ -95,117 +92,4 @@ pub async fn recv_frame(reader: &mut OwnedReadHalf) -> Result<Frame, TransportEr
     full.extend_from_slice(&payload);
 
     Frame::from_bytes(&full).map_err(TransportError::Frame)
-}
-
-/// Auto-detect the local Tailscale IPv4 address by running `tailscale ip -4`.
-async fn resolve_tailscale_ip() -> Result<String, TransportError> {
-    let output = tokio::process::Command::new("tailscale")
-        .args(["ip", "-4"])
-        .output()
-        .await?;
-    let ip = String::from_utf8_lossy(&output.stdout).trim().to_owned();
-    Ok(ip)
-}
-
-/// Run as the remote (server) side.
-///
-/// Binds a TCP listener on `bind_addr:port` and accepts one connection at a time.
-/// For each accepted connection, received frames are written to the system clipboard
-/// using [`ClipboardWriter`] with the given `display_env`.
-///
-/// If `bind_addr` is `"auto"` (set by main.rs when `--bind` is not provided),
-/// the Tailscale IPv4 address is auto-detected.
-pub async fn server(
-    bind_addr: &str,
-    port: u16,
-    display_env: DisplayEnvironment,
-) -> Result<(), TransportError> {
-    let resolved = if bind_addr == "auto" {
-        resolve_tailscale_ip().await?
-    } else {
-        bind_addr.to_owned()
-    };
-
-    let listener = TcpListener::bind(format!("{resolved}:{port}")).await?;
-    let addr = listener.local_addr()?;
-    info!("listening on {addr}");
-
-    loop {
-        let (stream, peer) = listener.accept().await?;
-        warn!("accepted connection from {peer}");
-        apply_keepalive(&stream)?;
-
-        let (mut reader, _writer) = stream.into_split();
-        // Create a ClipboardWriter per connection so each connection gets a fresh writer.
-        let mut writer = ClipboardWriter::new(display_env, None);
-        loop {
-            match recv_frame(&mut reader).await {
-                Ok(frame) => {
-                    let kb = frame.payload.len() / 1024;
-                    info!("received frame: {kb} KB payload, writing to clipboard");
-                    if let Err(e) = writer.write(&frame.payload).await {
-                        warn!("clipboard write failed: {e}");
-                    }
-                }
-                Err(TransportError::ConnectionClosed) => {
-                    warn!("client disconnected");
-                    break;
-                }
-                Err(e) => {
-                    warn!("connection error: {e}");
-                    break;
-                }
-            }
-        }
-    }
-}
-
-/// Run as the local (client) side.
-///
-/// Connects to `remote_addr:port` and reads frames from `frame_rx`.
-/// On any send error or connection failure the client reconnects using
-/// exponential backoff with jitter (initial 1 s, maximum 30 s).
-pub async fn client(
-    remote_addr: &str,
-    port: u16,
-    mut frame_rx: tokio::sync::mpsc::Receiver<Frame>,
-) -> Result<(), TransportError> {
-    let addr = format!("{remote_addr}:{port}");
-    let mut backoff: f64 = 1.0;
-
-    loop {
-        match TcpStream::connect(&addr).await {
-            Ok(stream) => {
-                warn!("connected to {addr}");
-                if let Err(e) = apply_keepalive(&stream) {
-                    warn!("failed to set keepalive: {e}");
-                }
-                backoff = 1.0;
-
-                let (_reader, mut writer) = stream.into_split();
-                loop {
-                    match frame_rx.recv().await {
-                        Some(frame) => {
-                            if let Err(e) = send_frame(&mut writer, &frame).await {
-                                warn!("connection lost: {e}");
-                                break;
-                            }
-                        }
-                        None => {
-                            // Channel closed — sender dropped, nothing left to do.
-                            return Ok(());
-                        }
-                    }
-                }
-            }
-            Err(e) => {
-                warn!("connect failed: {e}; retrying in {backoff:.1}s");
-            }
-        }
-
-        // Exponential backoff with jitter.
-        let jitter = rand::random::<f64>() * backoff * 0.25;
-        tokio::time::sleep(Duration::from_secs_f64(backoff + jitter)).await;
-        backoff = (backoff * 2.0).min(30.0);
-    }
 }
