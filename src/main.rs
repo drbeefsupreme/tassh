@@ -115,13 +115,18 @@ async fn send_inject(args: &cli::InjectArgs) -> anyhow::Result<()> {
 async fn run_status() -> anyhow::Result<()> {
     let socket_path = daemon::socket_path();
 
-    let stream = match UnixStream::connect(&socket_path).await {
-        Ok(s) => s,
-        Err(_) => {
-            println!("daemon not running");
-            return Ok(());
-        }
-    };
+    let stream =
+        match tokio::time::timeout(Duration::from_secs(5), UnixStream::connect(&socket_path)).await
+        {
+            Ok(Ok(s)) => s,
+            Ok(Err(_)) => {
+                println!("daemon not running");
+                return Ok(());
+            }
+            Err(_) => {
+                return Err(anyhow::anyhow!("timed out connecting to daemon (5s)"));
+            }
+        };
 
     let msg = ipc::IpcMessage::StatusRequest;
     let mut json = serde_json::to_vec(&msg)?;
@@ -130,10 +135,15 @@ async fn run_status() -> anyhow::Result<()> {
     let (reader, mut writer) = stream.into_split();
     writer.write_all(&json).await?;
 
-    // Read response.
+    // Read response with timeout so we don't hang if the daemon is stuck.
     let mut buf_reader = tokio::io::BufReader::new(reader);
     let mut response_line = String::new();
-    tokio::io::AsyncBufReadExt::read_line(&mut buf_reader, &mut response_line).await?;
+    tokio::time::timeout(
+        Duration::from_secs(5),
+        tokio::io::AsyncBufReadExt::read_line(&mut buf_reader, &mut response_line),
+    )
+    .await
+    .map_err(|_| anyhow::anyhow!("timed out waiting for daemon response (5s)"))??;
 
     let response: ipc::StatusResponse = serde_json::from_str(&response_line)?;
 
