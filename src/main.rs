@@ -115,21 +115,18 @@ async fn send_inject(args: &cli::InjectArgs) -> anyhow::Result<()> {
 async fn run_status() -> anyhow::Result<()> {
     let socket_path = daemon::socket_path();
 
-    let stream = match tokio::time::timeout(
-        Duration::from_secs(5),
-        UnixStream::connect(&socket_path),
-    )
-    .await
-    {
-        Ok(Ok(s)) => s,
-        Ok(Err(_)) => {
-            println!("daemon not running");
-            return Ok(());
-        }
-        Err(_) => {
-            return Err(anyhow::anyhow!("timed out connecting to daemon (5s)"));
-        }
-    };
+    let stream =
+        match tokio::time::timeout(Duration::from_secs(5), UnixStream::connect(&socket_path)).await
+        {
+            Ok(Ok(s)) => s,
+            Ok(Err(_)) => {
+                println!("daemon not running");
+                return Ok(());
+            }
+            Err(_) => {
+                return Err(anyhow::anyhow!("timed out connecting to daemon (5s)"));
+            }
+        };
 
     let msg = ipc::IpcMessage::StatusRequest;
     let mut json = serde_json::to_vec(&msg)?;
