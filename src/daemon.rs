@@ -714,9 +714,14 @@ async fn host_resolves_to_ip(hostname: &str, peer_ip: IpAddr) -> bool {
         return true;
     }
 
-    match tokio::net::lookup_host((hostname, 0)).await {
-        Ok(addrs) => addrs.into_iter().any(|addr| addr.ip() == peer_ip),
-        Err(_) => false,
+    match tokio::time::timeout(
+        Duration::from_secs(2),
+        tokio::net::lookup_host((hostname, 0)),
+    )
+    .await
+    {
+        Ok(Ok(addrs)) => addrs.into_iter().any(|addr| addr.ip() == peer_ip),
+        _ => false,
     }
 }
 
