@@ -14,6 +14,7 @@ use anyhow::anyhow;
 use image::{ImageFormat, RgbaImage};
 use sha2::{Digest, Sha256};
 use tokio::io::AsyncWriteExt;
+use tokio::sync::watch;
 
 use crate::protocol::{DisplayEnvironment, Frame};
 
@@ -274,6 +275,11 @@ pub struct ClipboardWriter {
     display: DisplayEnvironment,
     /// Explicit display string for X11/Xvfb writes (e.g. ":0"), if provided.
     display_str: Option<String>,
+    /// Watch receiver for dynamic display string updates (Xvfb restart).
+    ///
+    /// When set, `write()` reads the current value from the channel instead of
+    /// relying on the static `display_str` or the process-global environment.
+    display_rx: Option<watch::Receiver<String>>,
 }
 
 impl ClipboardWriter {
@@ -283,7 +289,17 @@ impl ClipboardWriter {
             current_child: None,
             display,
             display_str,
+            display_rx: None,
         }
+    }
+
+    /// Attach a watch receiver that provides live display string updates (Xvfb restarts).
+    ///
+    /// When set, `write()` reads the current display from the channel rather than the
+    /// static `display_str`, eliminating any dependency on `std::env::var("DISPLAY")`.
+    pub fn with_display_rx(mut self, rx: watch::Receiver<String>) -> Self {
+        self.display_rx = Some(rx);
+        self
     }
 
     /// Write `png_bytes` to the system clipboard.
@@ -324,8 +340,10 @@ impl ClipboardWriter {
                 // CLWR-02: xclip with clipboard selection + MIME type
                 // Pass -display explicitly to avoid depending on process-global DISPLAY.
                 let display_val = self
-                    .display_str
-                    .clone()
+                    .display_rx
+                    .as_ref()
+                    .map(|rx| rx.borrow().clone())
+                    .or_else(|| self.display_str.clone())
                     .or_else(|| std::env::var("DISPLAY").ok())
                     .unwrap_or_else(|| ":0".to_string());
                 tokio::process::Command::new("xclip")
