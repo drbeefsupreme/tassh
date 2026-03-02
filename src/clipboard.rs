@@ -95,11 +95,22 @@ async fn watch_clipboard_with_arboard(tx: tokio::sync::mpsc::Sender<Frame>) -> a
         }
 
         // Polling loop
+        //
+        // We distinguish two error classes from arboard::Clipboard::get_image():
+        //   • ContentNotAvailable — the clipboard is empty or holds non-image content; expected
+        //     and harmless, resets the consecutive-error counter.
+        //   • Any other error — indicates a backend problem (dead X11/Wayland connection, etc.).
+        //     We count these consecutively and bail out after MAX_CONSECUTIVE_ERRORS so the
+        //     caller can detect the failure and restart the watcher instead of looping silently.
+        const MAX_CONSECUTIVE_ERRORS: u32 = 10;
+        let mut consecutive_errors: u32 = 0;
+
         loop {
             std::thread::sleep(std::time::Duration::from_millis(500));
 
             match clipboard.get_image() {
                 Ok(img) => {
+                    consecutive_errors = 0;
                     let hash = content_hash(&img.bytes);
                     if Some(hash) == last_hash {
                         tracing::debug!("clipboard: image unchanged (hash match), skipping");
@@ -124,8 +135,21 @@ async fn watch_clipboard_with_arboard(tx: tokio::sync::mpsc::Sender<Frame>) -> a
                         }
                     }
                 }
-                Err(_) => {
+                Err(arboard::Error::ContentNotAvailable) => {
+                    // Expected: clipboard is empty or holds non-image content.
+                    consecutive_errors = 0;
                     tracing::debug!("clipboard: no image on clipboard");
+                }
+                Err(e) => {
+                    consecutive_errors += 1;
+                    tracing::warn!(
+                        "clipboard: backend error ({consecutive_errors}/{MAX_CONSECUTIVE_ERRORS}): {e}"
+                    );
+                    if consecutive_errors >= MAX_CONSECUTIVE_ERRORS {
+                        return Err(anyhow!(
+                            "clipboard backend failed after {consecutive_errors} consecutive errors: {e}"
+                        ));
+                    }
                 }
             }
         }
