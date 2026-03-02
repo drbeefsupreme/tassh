@@ -29,11 +29,22 @@ pub fn watch_pid(pid: u32) -> Pin<Box<dyn Future<Output = ()> + Send>> {
                 }
                 // Fallback to /proc polling for other errors (shouldn't happen on supported kernels)
                 tracing::warn!("pidfd_open failed for pid {pid}: {e}, falling back to polling");
-                loop {
-                    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
-                    if !std::path::Path::new(&format!("/proc/{pid}")).exists() {
-                        break;
+                const MAX_POLL_DURATION: std::time::Duration =
+                    std::time::Duration::from_secs(30 * 60);
+                let timed_out = tokio::time::timeout(MAX_POLL_DURATION, async {
+                    loop {
+                        tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+                        if !std::path::Path::new(&format!("/proc/{pid}")).exists() {
+                            break;
+                        }
                     }
+                })
+                .await
+                .is_err();
+                if timed_out {
+                    tracing::warn!(
+                        "pid {pid} /proc poll watcher timed out after 30 minutes; giving up"
+                    );
                 }
             }
         }
