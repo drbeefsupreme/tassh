@@ -128,15 +128,44 @@ fn prompt_yes_no(question: &str, default_yes: bool) -> bool {
 // ---------------------------------------------------------------------------
 
 fn run_systemctl(args: &[&str]) -> anyhow::Result<()> {
-    let status = Command::new("systemctl")
-        .args(args)
-        .status()
-        .with_context(|| format!("failed to run systemctl {}", args.join(" ")))?;
+    use std::sync::mpsc;
+    use std::time::Duration;
 
-    if !status.success() {
-        bail!("systemctl {} exited with status {}", args.join(" "), status);
+    const TIMEOUT: Duration = Duration::from_secs(30);
+
+    let mut child = Command::new("systemctl")
+        .args(args)
+        .spawn()
+        .with_context(|| format!("failed to spawn systemctl {}", args.join(" ")))?;
+
+    let pid = child.id();
+    let (tx, rx) = mpsc::channel();
+
+    std::thread::spawn(move || {
+        let _ = tx.send(child.wait());
+    });
+
+    match rx.recv_timeout(TIMEOUT) {
+        Ok(Ok(status)) => {
+            if !status.success() {
+                bail!("systemctl {} exited with status {}", args.join(" "), status);
+            }
+            Ok(())
+        }
+        Ok(Err(e)) => {
+            Err(e).with_context(|| format!("failed to wait on systemctl {}", args.join(" ")))
+        }
+        Err(_) => {
+            // Timeout: kill the child process.
+            // SAFETY: pid is a valid process id obtained from Child::id() before it was moved.
+            unsafe { libc::kill(pid as libc::pid_t, libc::SIGKILL) };
+            bail!(
+                "systemctl {} timed out after {:.0?}",
+                args.join(" "),
+                TIMEOUT
+            )
+        }
     }
-    Ok(())
 }
 
 // ---------------------------------------------------------------------------
