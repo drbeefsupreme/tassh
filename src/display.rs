@@ -10,7 +10,7 @@ use std::os::unix::io::RawFd;
 use std::sync::Arc;
 
 use anyhow::{anyhow, Context};
-use tokio::sync::Mutex;
+use tokio::sync::{oneshot, Mutex};
 
 use crate::protocol::DisplayEnvironment;
 
@@ -26,6 +26,11 @@ pub struct DisplayManager {
     ///
     /// Wrapped in Arc<Mutex<>> so the auto-restart background task can swap in a new child.
     xvfb_child: Option<Arc<Mutex<Option<tokio::process::Child>>>>,
+    /// Fires once when Xvfb fails MAX_ATTEMPTS consecutive restarts.
+    ///
+    /// `None` for non-Xvfb environments (Wayland, X11). The daemon main loop should
+    /// select on this to trigger a graceful shutdown instead of an abrupt `exit(1)`.
+    pub xvfb_shutdown_rx: Option<oneshot::Receiver<()>>,
 }
 
 impl DisplayManager {
@@ -49,6 +54,7 @@ impl DisplayManager {
                         env: DisplayEnvironment::Wayland,
                         display_str: wd,
                         xvfb_child: None,
+                        xvfb_shutdown_rx: None,
                     });
                 }
             }
@@ -62,6 +68,7 @@ impl DisplayManager {
                         env: DisplayEnvironment::X11,
                         display_str: d,
                         xvfb_child: None,
+                        xvfb_shutdown_rx: None,
                     });
                 }
             }
@@ -93,16 +100,21 @@ impl DisplayManager {
         let child_handle = Arc::new(Mutex::new(Some(child)));
         let child_for_monitor = Arc::clone(&child_handle);
 
+        // Channel used by monitor_xvfb to signal the main daemon loop when Xvfb
+        // fails MAX_ATTEMPTS times and a graceful shutdown should be performed.
+        let (shutdown_tx, shutdown_rx) = oneshot::channel::<()>();
+
         // Background task: monitor Xvfb and auto-restart with exponential backoff.
         let display_str_clone = display_str.clone();
         tokio::spawn(async move {
-            monitor_xvfb(child_for_monitor, display_str_clone).await;
+            monitor_xvfb(child_for_monitor, display_str_clone, shutdown_tx).await;
         });
 
         Ok(Self {
             env: DisplayEnvironment::Xvfb,
             display_str,
             xvfb_child: Some(child_handle),
+            xvfb_shutdown_rx: Some(shutdown_rx),
         })
     }
 
@@ -264,10 +276,11 @@ fn display_file_path() -> std::path::PathBuf {
 /// Background task that monitors Xvfb and auto-restarts it on unexpected exit.
 ///
 /// Exponential backoff: 2s, 4s, 8s, 16s, 32s. Gives up after 5 failed attempts
-/// and calls `std::process::exit(1)`.
+/// and signals `shutdown_tx` so the main daemon loop can perform a graceful shutdown.
 async fn monitor_xvfb(
     child_handle: Arc<Mutex<Option<tokio::process::Child>>>,
     display_str: String,
+    shutdown_tx: oneshot::Sender<()>,
 ) {
     let mut attempts: u32 = 0;
     const MAX_ATTEMPTS: u32 = 5;
@@ -295,8 +308,11 @@ async fn monitor_xvfb(
         attempts += 1;
 
         if attempts >= MAX_ATTEMPTS {
-            tracing::error!("Xvfb failed {MAX_ATTEMPTS} times in a row, giving up");
-            std::process::exit(1);
+            tracing::error!(
+                "Xvfb failed {MAX_ATTEMPTS} times in a row, signaling graceful shutdown"
+            );
+            let _ = shutdown_tx.send(());
+            break;
         }
 
         let backoff_secs = 2u64.pow(attempts);
