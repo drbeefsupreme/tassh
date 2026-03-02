@@ -183,10 +183,13 @@ async fn read_displayfd(read_fd: RawFd) -> anyhow::Result<u32> {
     let mut async_file = tokio::fs::File::from_std(std_file);
 
     let mut buf = String::new();
-    async_file
-        .read_to_string(&mut buf)
-        .await
-        .context("read from -displayfd pipe failed")?;
+    tokio::time::timeout(
+        std::time::Duration::from_secs(10),
+        async_file.read_to_string(&mut buf),
+    )
+    .await
+    .map_err(|_| anyhow!("Xvfb did not report a display number within 10 seconds"))?
+    .context("read from -displayfd pipe failed")?;
 
     let trimmed = buf.trim();
     trimmed
