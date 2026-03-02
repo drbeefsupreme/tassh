@@ -59,10 +59,14 @@ pub async fn run_daemon(port: u16) -> anyhow::Result<()> {
 
     // Always require Xvfb here so SSH sessions can source ~/.tassh/display and
     // paste images reliably into remote CLI tools.
-    let display_mgr = DisplayManager::detect_and_init(true)
+    let mut display_mgr = DisplayManager::detect_and_init(true)
         .await
         .map_err(|e| anyhow::anyhow!("display init failed (Xvfb required): {e}"))?;
     info!("display initialized: {:?}", display_mgr.env);
+
+    // Take the Xvfb failure channel before display_mgr fields are moved.
+    // Resolves when Xvfb fails MAX_ATTEMPTS consecutive restarts; None for non-Xvfb envs.
+    let xvfb_shutdown_rx = display_mgr.xvfb_shutdown_rx.take();
 
     // Choose clipboard watcher env:
     // - Prefer the original desktop env captured at process start.
@@ -158,6 +162,17 @@ pub async fn run_daemon(port: u16) -> anyhow::Result<()> {
     // Handle graceful shutdown
     let mut sigterm = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())?;
 
+    // A future that resolves when Xvfb fails MAX_ATTEMPTS times; pending forever otherwise.
+    let xvfb_failed = async move {
+        match xvfb_shutdown_rx {
+            Some(rx) => {
+                let _ = rx.await;
+            }
+            None => std::future::pending().await,
+        }
+    };
+    tokio::pin!(xvfb_failed);
+
     loop {
         tokio::select! {
             result = listener.accept() => {
@@ -178,6 +193,10 @@ pub async fn run_daemon(port: u16) -> anyhow::Result<()> {
             }
             _ = tokio::signal::ctrl_c() => {
                 info!("Ctrl-C received, shutting down");
+                break;
+            }
+            _ = &mut xvfb_failed => {
+                info!("Xvfb failed permanently, initiating graceful shutdown");
                 break;
             }
         }
