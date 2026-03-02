@@ -229,7 +229,7 @@ async fn run_clipboard_watcher_with_restart(
         let tx = watch_tx.clone();
         let display = current_display.clone();
         let wayland = wayland_display.clone();
-        let watcher = tokio::spawn(async move {
+        let mut watcher = tokio::spawn(async move {
             if let Err(e) = watch_clipboard(tx, display, wayland).await {
                 warn!("clipboard watcher error: {e}");
             }
@@ -242,7 +242,7 @@ async fn run_clipboard_watcher_with_restart(
         };
 
         tokio::select! {
-            _ = watcher => {
+            _ = &mut watcher => {
                 // Watcher exited (old display gone). Wait for Xvfb to restart.
                 match rx.recv().await {
                     Some(new_display) => {
@@ -256,6 +256,8 @@ async fn run_clipboard_watcher_with_restart(
                 match result {
                     Some(new_display) => {
                         // Display changed while watcher was running — abort and restart.
+                        // Fire-and-forget: the old watcher targets a display that no longer
+                        // exists, so we don't need to wait for it to finish.
                         watcher.abort();
                         info!(
                             "Xvfb display changed to {new_display}, restarting clipboard watcher"
