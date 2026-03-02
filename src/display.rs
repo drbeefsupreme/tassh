@@ -10,7 +10,7 @@ use std::os::unix::io::RawFd;
 use std::sync::Arc;
 
 use anyhow::{anyhow, Context};
-use tokio::sync::Mutex;
+use tokio::sync::{watch, Mutex};
 
 use crate::protocol::DisplayEnvironment;
 
@@ -26,6 +26,11 @@ pub struct DisplayManager {
     ///
     /// Wrapped in Arc<Mutex<>> so the auto-restart background task can swap in a new child.
     xvfb_child: Option<Arc<Mutex<Option<tokio::process::Child>>>>,
+    /// Watch channel sender for the current DISPLAY string (Xvfb only).
+    ///
+    /// On Xvfb restart, `monitor_xvfb` sends the new display string here instead of calling
+    /// `std::env::set_var`, which is unsound in a multi-threaded runtime.
+    display_tx: Option<Arc<watch::Sender<String>>>,
 }
 
 impl DisplayManager {
@@ -49,6 +54,7 @@ impl DisplayManager {
                         env: DisplayEnvironment::Wayland,
                         display_str: wd,
                         xvfb_child: None,
+                        display_tx: None,
                     });
                 }
             }
@@ -62,6 +68,7 @@ impl DisplayManager {
                         env: DisplayEnvironment::X11,
                         display_str: d,
                         xvfb_child: None,
+                        display_tx: None,
                     });
                 }
             }
@@ -77,12 +84,6 @@ impl DisplayManager {
         tracing::info!("display: headless, spawning Xvfb");
         let (child, display_str) = spawn_xvfb().await?;
 
-        // Set DISPLAY in this process's environment so child processes inherit it.
-        // SAFETY: This is called once at startup before any threads read DISPLAY.
-        #[allow(deprecated)]
-        unsafe {
-            std::env::set_var("DISPLAY", &display_str);
-        }
         tracing::info!("Xvfb spawned on display {}", display_str);
 
         // Publish to ~/.tassh/display
@@ -90,20 +91,36 @@ impl DisplayManager {
             .await
             .context("failed to write ~/.tassh/display")?;
 
+        // Create a watch channel so monitor_xvfb can broadcast display updates to consumers
+        // without calling std::env::set_var (which is unsound in a multi-threaded runtime).
+        let (display_tx, _) = watch::channel(display_str.clone());
+        let display_tx = Arc::new(display_tx);
+
         let child_handle = Arc::new(Mutex::new(Some(child)));
         let child_for_monitor = Arc::clone(&child_handle);
 
         // Background task: monitor Xvfb and auto-restart with exponential backoff.
         let display_str_clone = display_str.clone();
+        let display_tx_for_monitor = Arc::clone(&display_tx);
         tokio::spawn(async move {
-            monitor_xvfb(child_for_monitor, display_str_clone).await;
+            monitor_xvfb(child_for_monitor, display_str_clone, display_tx_for_monitor).await;
         });
 
         Ok(Self {
             env: DisplayEnvironment::Xvfb,
             display_str,
             xvfb_child: Some(child_handle),
+            display_tx: Some(display_tx),
         })
+    }
+
+    /// Subscribe to display string updates (Xvfb environments only).
+    ///
+    /// Returns `None` for Wayland and X11 environments where the display string is fixed.
+    /// The receiver always holds the most recently published display string; use
+    /// `receiver.borrow().clone()` to read it without blocking.
+    pub fn display_receiver(&self) -> Option<watch::Receiver<String>> {
+        self.display_tx.as_ref().map(|tx| tx.subscribe())
     }
 
     /// Shut down cleanly: kill Xvfb (if running) and remove `~/.tassh/display`.
@@ -265,9 +282,13 @@ fn display_file_path() -> std::path::PathBuf {
 ///
 /// Exponential backoff: 2s, 4s, 8s, 16s, 32s. Gives up after 5 failed attempts
 /// and calls `std::process::exit(1)`.
+///
+/// On restart, the new display string is broadcast via `display_tx` so consumers
+/// can update without reading from the process-global environment.
 async fn monitor_xvfb(
     child_handle: Arc<Mutex<Option<tokio::process::Child>>>,
     display_str: String,
+    display_tx: Arc<watch::Sender<String>>,
 ) {
     let mut attempts: u32 = 0;
     const MAX_ATTEMPTS: u32 = 5;
@@ -313,11 +334,8 @@ async fn monitor_xvfb(
                         display_str
                     );
                 }
-                // Set DISPLAY again in case it changed (best-effort).
-                #[allow(deprecated)]
-                unsafe {
-                    std::env::set_var("DISPLAY", &new_display);
-                }
+                // Broadcast the new display string to all consumers via the watch channel.
+                let _ = display_tx.send(new_display.clone());
                 if let Err(e) = publish_display(&new_display).await {
                     tracing::warn!("Failed to re-publish display: {e}");
                 }

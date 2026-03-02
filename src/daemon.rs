@@ -9,7 +9,7 @@ use std::time::Duration;
 
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::{TcpStream, UnixListener, UnixStream};
-use tokio::sync::{broadcast, mpsc, Mutex};
+use tokio::sync::{broadcast, mpsc, watch, Mutex};
 use tracing::{debug, info, warn};
 
 use crate::clipboard::{watch_clipboard, ClipboardWriter};
@@ -112,6 +112,7 @@ pub async fn run_daemon(port: u16) -> anyhow::Result<()> {
     let tcp_registry = registry.clone();
     let tcp_display_env = display_mgr.env;
     let tcp_display_str = display_mgr.display_str.clone();
+    let tcp_display_rx = display_mgr.display_receiver();
     let tcp_clip_tx = clip_tx.clone();
     let tcp_handle = tokio::spawn(async move {
         if let Err(e) = run_tcp_server(
@@ -120,6 +121,7 @@ pub async fn run_daemon(port: u16) -> anyhow::Result<()> {
             tcp_display_env,
             tcp_display_str,
             tcp_clip_tx,
+            tcp_display_rx,
         )
         .await
         {
@@ -600,6 +602,7 @@ async fn run_tcp_server(
     display_env: crate::protocol::DisplayEnvironment,
     display_str: String,
     _clip_tx: broadcast::Sender<Arc<Frame>>,
+    display_rx: Option<watch::Receiver<String>>,
 ) -> anyhow::Result<()> {
     // Resolve Tailscale IP for binding
     let bind_ip = resolve_tailscale_ip().await?;
@@ -624,7 +627,14 @@ async fn run_tcp_server(
         }
 
         let (mut reader, writer) = stream.into_split();
-        let mut clip_writer = ClipboardWriter::new(display_env, Some(display_str.clone()));
+        let mut clip_writer = {
+            let writer = ClipboardWriter::new(display_env, Some(display_str.clone()));
+            if let Some(rx) = display_rx.clone() {
+                writer.with_display_rx(rx)
+            } else {
+                writer
+            }
+        };
         let registry_for_cleanup = registry.clone();
         let peer_host_for_cleanup = peer_host.clone();
 
