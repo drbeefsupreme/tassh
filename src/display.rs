@@ -10,7 +10,7 @@ use std::os::unix::io::RawFd;
 use std::sync::Arc;
 
 use anyhow::{anyhow, Context};
-use tokio::sync::Mutex;
+use tokio::sync::{mpsc, Mutex};
 
 use crate::protocol::DisplayEnvironment;
 
@@ -22,6 +22,9 @@ pub struct DisplayManager {
     pub env: DisplayEnvironment,
     /// The display identifier string, e.g. `":1"` or a Wayland socket name.
     pub display_str: String,
+    /// Receives the new display string each time Xvfb restarts (possibly on a different display
+    /// number).  Only present in Xvfb mode; `None` for Wayland / X11 / Headless.
+    pub display_restart_rx: Option<mpsc::Receiver<String>>,
     /// Handle to the Xvfb child process, if we spawned one.
     ///
     /// Wrapped in Arc<Mutex<>> so the auto-restart background task can swap in a new child.
@@ -48,6 +51,7 @@ impl DisplayManager {
                     return Ok(Self {
                         env: DisplayEnvironment::Wayland,
                         display_str: wd,
+                        display_restart_rx: None,
                         xvfb_child: None,
                     });
                 }
@@ -61,6 +65,7 @@ impl DisplayManager {
                     return Ok(Self {
                         env: DisplayEnvironment::X11,
                         display_str: d,
+                        display_restart_rx: None,
                         xvfb_child: None,
                     });
                 }
@@ -93,15 +98,19 @@ impl DisplayManager {
         let child_handle = Arc::new(Mutex::new(Some(child)));
         let child_for_monitor = Arc::clone(&child_handle);
 
+        // Channel used to notify the clipboard watcher when Xvfb restarts.
+        let (restart_tx, restart_rx) = mpsc::channel::<String>(4);
+
         // Background task: monitor Xvfb and auto-restart with exponential backoff.
         let display_str_clone = display_str.clone();
         tokio::spawn(async move {
-            monitor_xvfb(child_for_monitor, display_str_clone).await;
+            monitor_xvfb(child_for_monitor, display_str_clone, restart_tx).await;
         });
 
         Ok(Self {
             env: DisplayEnvironment::Xvfb,
             display_str,
+            display_restart_rx: Some(restart_rx),
             xvfb_child: Some(child_handle),
         })
     }
@@ -265,9 +274,13 @@ fn display_file_path() -> std::path::PathBuf {
 ///
 /// Exponential backoff: 2s, 4s, 8s, 16s, 32s. Gives up after 5 failed attempts
 /// and calls `std::process::exit(1)`.
+///
+/// Sends the new display string on `restart_tx` after each successful restart so that
+/// the clipboard watcher can reconnect to the new display.
 async fn monitor_xvfb(
     child_handle: Arc<Mutex<Option<tokio::process::Child>>>,
     display_str: String,
+    restart_tx: mpsc::Sender<String>,
 ) {
     let mut attempts: u32 = 0;
     const MAX_ATTEMPTS: u32 = 5;
@@ -322,6 +335,13 @@ async fn monitor_xvfb(
                     tracing::warn!("Failed to re-publish display: {e}");
                 }
                 tracing::info!("Xvfb restarted on display {new_display}");
+
+                // Notify the clipboard watcher so it can reconnect to the new display.
+                if restart_tx.send(new_display.clone()).await.is_err() {
+                    tracing::debug!(
+                        "display restart notifier: receiver dropped, daemon shutting down"
+                    );
+                }
 
                 let mut guard = child_handle.lock().await;
                 *guard = Some(new_child);

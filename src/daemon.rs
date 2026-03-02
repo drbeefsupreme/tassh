@@ -59,7 +59,7 @@ pub async fn run_daemon(port: u16) -> anyhow::Result<()> {
 
     // Always require Xvfb here so SSH sessions can source ~/.tassh/display and
     // paste images reliably into remote CLI tools.
-    let display_mgr = DisplayManager::detect_and_init(true)
+    let mut display_mgr = DisplayManager::detect_and_init(true)
         .await
         .map_err(|e| anyhow::anyhow!("display init failed (Xvfb required): {e}"))?;
     info!("display initialized: {:?}", display_mgr.env);
@@ -95,17 +95,26 @@ pub async fn run_daemon(port: u16) -> anyhow::Result<()> {
     // Start clipboard watcher - converts local clipboard changes to broadcast.
     let clip_tx_clone = clip_tx.clone();
     let (watch_tx, mut watch_rx) = mpsc::channel::<Frame>(16);
-    let clipboard_handle = tokio::spawn(async move {
-        if let Err(e) = watch_clipboard(watch_tx, watcher_display, watcher_wayland_display).await {
-            warn!("clipboard watcher error: {e}");
-        }
-    });
 
     // Bridge clipboard watcher (mpsc) to broadcast channel.
     let broadcast_handle = tokio::spawn(async move {
         while let Some(frame) = watch_rx.recv().await {
             let _ = clip_tx_clone.send(Arc::new(frame));
         }
+    });
+
+    // Take the display restart receiver before display_mgr is partially consumed below.
+    let display_restart_rx = display_mgr.display_restart_rx.take();
+
+    // Start clipboard watcher with auto-restart when Xvfb restarts on a new display.
+    let clipboard_handle = tokio::spawn(async move {
+        run_clipboard_watcher_with_restart(
+            watch_tx,
+            watcher_display,
+            watcher_wayland_display,
+            display_restart_rx,
+        )
+        .await;
     });
 
     // Start TCP listener for incoming peer connections (we also act as receiver)
@@ -199,6 +208,71 @@ pub async fn run_daemon(port: u16) -> anyhow::Result<()> {
     let _ = std::fs::remove_file(&sock_path);
 
     Ok(())
+}
+
+/// Run the clipboard watcher, restarting it whenever Xvfb restarts on a new display.
+///
+/// In Xvfb mode (`restart_rx` is `Some`), the watcher is automatically restarted whenever:
+/// - it exits due to a display error, and a new display string arrives on `restart_rx`; or
+/// - the display changes while the watcher is still running (abort + immediate restart).
+///
+/// In non-Xvfb mode (`restart_rx` is `None`), the watcher runs exactly once.
+async fn run_clipboard_watcher_with_restart(
+    watch_tx: mpsc::Sender<Frame>,
+    initial_display: Option<String>,
+    wayland_display: Option<String>,
+    mut restart_rx: Option<mpsc::Receiver<String>>,
+) {
+    let mut current_display = initial_display;
+
+    loop {
+        let tx = watch_tx.clone();
+        let display = current_display.clone();
+        let wayland = wayland_display.clone();
+        let mut watcher = tokio::spawn(async move {
+            if let Err(e) = watch_clipboard(tx, display, wayland).await {
+                warn!("clipboard watcher error: {e}");
+            }
+        });
+
+        let Some(ref mut rx) = restart_rx else {
+            // No restart support — run once and exit.
+            watcher.await.ok();
+            break;
+        };
+
+        tokio::select! {
+            _ = &mut watcher => {
+                // Watcher exited (old display gone). Wait for Xvfb to restart.
+                match rx.recv().await {
+                    Some(new_display) => {
+                        info!("Xvfb restarted on {new_display}, restarting clipboard watcher");
+                        current_display = Some(new_display);
+                    }
+                    None => break, // Sender dropped — daemon shutting down.
+                }
+            }
+            result = rx.recv() => {
+                match result {
+                    Some(new_display) => {
+                        // Display changed while watcher was running — abort and restart.
+                        // Fire-and-forget: the old watcher targets a display that no longer
+                        // exists, so we don't need to wait for it to finish.
+                        watcher.abort();
+                        info!(
+                            "Xvfb display changed to {new_display}, restarting clipboard watcher"
+                        );
+                        current_display = Some(new_display);
+                    }
+                    None => {
+                        // Sender dropped — daemon shutting down.
+                        watcher.abort();
+                        break;
+                    }
+                }
+            }
+        }
+    }
 }
 
 /// Handle a single IPC connection (one message, one response, then close).
