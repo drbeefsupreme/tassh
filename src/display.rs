@@ -338,7 +338,9 @@ async fn monitor_xvfb(
 
                 // Notify the clipboard watcher so it can reconnect to the new display.
                 if restart_tx.send(new_display.clone()).await.is_err() {
-                    tracing::debug!("display restart notifier: receiver dropped, daemon shutting down");
+                    tracing::debug!(
+                        "display restart notifier: receiver dropped, daemon shutting down"
+                    );
                 }
 
                 let mut guard = child_handle.lock().await;
