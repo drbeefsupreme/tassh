@@ -22,6 +22,13 @@ use crate::protocol::{DisplayEnvironment, Frame, FrameError};
 /// Header length for a tassh frame: 2 magic + 1 version + 1 type + 4 length.
 const HEADER_LEN: usize = 8;
 
+/// Maximum allowed payload length (64 MiB).
+///
+/// A peer-supplied length field is rejected before allocation if it exceeds this
+/// limit, preventing a malicious or buggy peer from triggering an OOM kill by
+/// advertising a multi-GiB payload.
+const MAX_PAYLOAD_LEN: usize = 64 * 1024 * 1024;
+
 /// Errors that can arise in the transport layer.
 #[derive(Debug, thiserror::Error)]
 pub enum TransportError {
@@ -81,6 +88,9 @@ pub async fn recv_frame(reader: &mut OwnedReadHalf) -> Result<Frame, TransportEr
     }
 
     let payload_len = u32::from_be_bytes([header[4], header[5], header[6], header[7]]) as usize;
+    if payload_len > MAX_PAYLOAD_LEN {
+        return Err(TransportError::Frame(FrameError::TooLarge(payload_len)));
+    }
     let mut payload = vec![0u8; payload_len];
     reader.read_exact(&mut payload).await.map_err(|e| {
         if e.kind() == io::ErrorKind::UnexpectedEof {
