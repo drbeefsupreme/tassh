@@ -355,11 +355,28 @@ impl ClipboardWriter {
 
         // --- Pipe PNG data to stdin (CLWR-01) ---
         if let Some(mut stdin) = child.stdin.take() {
-            stdin
-                .write_all(png_bytes)
-                .await
-                .map_err(|e| anyhow!("failed to write PNG to clipboard subprocess stdin: {e}"))?;
-            // Drop stdin — signals EOF so the subprocess knows we're done sending data.
+            let write_result =
+                tokio::time::timeout(Duration::from_secs(5), stdin.write_all(png_bytes)).await;
+            match write_result {
+                Ok(Ok(())) => {
+                    // stdin dropped here — signals EOF so the subprocess knows we're done sending data.
+                }
+                Ok(Err(e)) => {
+                    let _ = child.kill().await;
+                    return Err(anyhow!(
+                        "failed to write PNG to clipboard subprocess stdin: {e}"
+                    ));
+                }
+                Err(_) => {
+                    tracing::warn!(
+                        "clipboard write: timed out writing PNG to subprocess stdin, killing child"
+                    );
+                    let _ = child.kill().await;
+                    return Err(anyhow!(
+                        "timed out writing PNG to clipboard subprocess stdin"
+                    ));
+                }
+            }
         }
 
         tracing::info!("clipboard write: {} KB", png_bytes.len() / 1024);
