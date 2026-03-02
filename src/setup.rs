@@ -4,6 +4,8 @@ use std::io::{BufRead, IsTerminal, Read, Seek, SeekFrom, Write};
 use std::os::fd::AsRawFd;
 use std::path::PathBuf;
 use std::process::Command;
+use std::sync::mpsc;
+use std::time::Duration;
 
 use anyhow::{bail, Context};
 
@@ -203,19 +205,36 @@ pub fn run_setup_daemon(args: &SetupDaemonArgs) -> anyhow::Result<()> {
     run_systemctl(&["--user", "enable", service_name])?;
     run_systemctl(&["--user", "start", service_name])?;
 
-    // loginctl enable-linger (warning only on failure).
-    let linger_status = Command::new("loginctl").arg("enable-linger").status();
-    match linger_status {
-        Ok(s) if s.success() => {}
-        Ok(s) => eprintln!(
-            "warning: loginctl enable-linger exited with status {} — \
-             linger may need to be enabled manually",
-            s
-        ),
+    // loginctl enable-linger (warning only on failure or timeout).
+    // Spawn the child and wait with a 10-second timeout so that an
+    // unresponsive logind/D-Bus cannot hang `tassh setup daemon` indefinitely.
+    match Command::new("loginctl").arg("enable-linger").spawn() {
         Err(e) => eprintln!(
-            "warning: loginctl enable-linger failed: {e} — \
+            "warning: loginctl enable-linger failed to start: {e} — \
              linger may need to be enabled manually"
         ),
+        Ok(mut child) => {
+            let (tx, rx) = mpsc::channel();
+            std::thread::spawn(move || {
+                let _ = tx.send(child.wait());
+            });
+            match rx.recv_timeout(Duration::from_secs(10)) {
+                Ok(Ok(s)) if s.success() => {}
+                Ok(Ok(s)) => eprintln!(
+                    "warning: loginctl enable-linger exited with status {} — \
+                     linger may need to be enabled manually",
+                    s
+                ),
+                Ok(Err(e)) => eprintln!(
+                    "warning: loginctl enable-linger failed: {e} — \
+                     linger may need to be enabled manually"
+                ),
+                Err(_) => eprintln!(
+                    "warning: loginctl enable-linger timed out after 10 s — \
+                     linger may need to be enabled manually"
+                ),
+            }
+        }
     }
 
     // -----------------------------------------------------------------------
