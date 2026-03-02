@@ -30,6 +30,9 @@ pub enum FrameError {
 
     #[error("payload length mismatch: header says {expected} bytes, got {actual}")]
     LengthMismatch { expected: usize, actual: usize },
+
+    #[error("unknown frame type: {0:#04x}")]
+    UnknownFrameType(u8),
 }
 
 /// The display environment the remote side is running in.
@@ -99,6 +102,10 @@ impl Frame {
         }
 
         let frame_type = data[3];
+        if frame_type != FRAME_TYPE_PNG {
+            return Err(FrameError::UnknownFrameType(frame_type));
+        }
+
         let expected_len = u32::from_be_bytes([data[4], data[5], data[6], data[7]]) as usize;
 
         let available = data.len() - HEADER_LEN;
@@ -197,6 +204,18 @@ mod tests {
                 actual: 10
             })
         ));
+    }
+
+    #[test]
+    fn rejects_unknown_frame_type() {
+        let mut data = Vec::with_capacity(HEADER_LEN);
+        data.push(MAGIC[0]);
+        data.push(MAGIC[1]);
+        data.push(VERSION);
+        data.push(0xFF); // unknown frame type
+        data.extend_from_slice(&0u32.to_be_bytes()); // zero-length payload
+        let result = Frame::from_bytes(&data);
+        assert!(matches!(result, Err(FrameError::UnknownFrameType(0xFF))));
     }
 
     #[test]
