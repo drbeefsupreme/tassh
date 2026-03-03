@@ -98,7 +98,15 @@ async fn send_notify(args: &cli::NotifyArgs) -> anyhow::Result<()> {
 
 /// Inject a PNG frame into daemon broadcast for deterministic test fan-out.
 async fn send_inject(args: &cli::InjectArgs) -> anyhow::Result<()> {
+    const MAX_PNG_BYTES: u64 = 64 * 1024 * 1024;
     let socket_path = daemon::socket_path();
+    let metadata = tokio::fs::metadata(&args.png_file).await?;
+    if metadata.len() > MAX_PNG_BYTES {
+        anyhow::bail!(
+            "PNG file too large ({} bytes); limit is 64 MiB",
+            metadata.len()
+        );
+    }
     let png_bytes = tokio::fs::read(&args.png_file).await?;
 
     let stream = UnixStream::connect(&socket_path).await?;
