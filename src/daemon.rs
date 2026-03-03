@@ -824,14 +824,21 @@ async fn discover_existing_ssh_sessions(
     let self_aliases = discover_local_aliases().await;
 
     // Get list of ssh processes with their command lines
-    let output = match tokio::process::Command::new("pgrep")
-        .args(["-a", "ssh"])
-        .output()
-        .await
+    let output = match tokio::time::timeout(
+        Duration::from_secs(5),
+        tokio::process::Command::new("pgrep")
+            .args(["-a", "ssh"])
+            .output(),
+    )
+    .await
     {
-        Ok(o) => o,
-        Err(e) => {
+        Ok(Ok(o)) => o,
+        Ok(Err(e)) => {
             debug!("pgrep failed: {e}");
+            return;
+        }
+        Err(_) => {
+            warn!("pgrep timed out during session discovery, skipping");
             return;
         }
     };
@@ -1033,15 +1040,28 @@ async fn discover_local_aliases() -> HashSet<String> {
         aliases.insert(ip.to_ascii_lowercase());
     }
 
-    if let Ok(output) = tokio::process::Command::new("hostname").output().await {
-        let hostname = String::from_utf8_lossy(&output.stdout)
-            .trim()
-            .to_ascii_lowercase();
-        if !hostname.is_empty() {
-            aliases.insert(hostname.clone());
-            if let Some(short) = hostname.split('.').next() {
-                aliases.insert(short.to_owned());
+    match tokio::time::timeout(
+        Duration::from_secs(5),
+        tokio::process::Command::new("hostname").output(),
+    )
+    .await
+    {
+        Ok(Ok(output)) => {
+            let hostname = String::from_utf8_lossy(&output.stdout)
+                .trim()
+                .to_ascii_lowercase();
+            if !hostname.is_empty() {
+                aliases.insert(hostname.clone());
+                if let Some(short) = hostname.split('.').next() {
+                    aliases.insert(short.to_owned());
+                }
             }
+        }
+        Ok(Err(e)) => {
+            debug!("hostname failed: {e}");
+        }
+        Err(_) => {
+            warn!("hostname timed out during alias discovery");
         }
     }
 
