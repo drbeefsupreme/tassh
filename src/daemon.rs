@@ -7,7 +7,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
-use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
 use tokio::net::{TcpStream, UnixListener, UnixStream};
 use tokio::sync::{broadcast, mpsc, Mutex};
 use tracing::{debug, info, warn};
@@ -22,6 +22,10 @@ use crate::transport::{apply_keepalive, recv_frame, send_frame};
 
 /// Default port for tassh daemon TCP connections.
 pub const DEFAULT_PORT: u16 = 9877;
+
+/// Maximum byte size of a single IPC message line read from a Unix socket client.
+/// Matches the TCP frame cap to prevent a misbehaving client from exhausting daemon memory.
+const MAX_IPC_LINE_BYTES: u64 = 64 * 1024 * 1024;
 
 /// Path to the daemon Unix socket.
 pub fn socket_path() -> PathBuf {
@@ -211,7 +215,23 @@ async fn handle_ipc_connection(
     let mut reader = BufReader::new(stream);
     let mut line = String::new();
 
-    if reader.read_line(&mut line).await.unwrap_or(0) == 0 {
+    // Enforce a size limit: read at most MAX_IPC_LINE_BYTES + 1 so we can detect
+    // over-limit messages without allocating unbounded memory.
+    let n = (&mut reader)
+        .take(MAX_IPC_LINE_BYTES + 1)
+        .read_line(&mut line)
+        .await
+        .unwrap_or(0);
+
+    if n == 0 {
+        return;
+    }
+
+    if n as u64 > MAX_IPC_LINE_BYTES {
+        warn!(
+            "IPC message exceeds {} MiB size limit, closing connection",
+            MAX_IPC_LINE_BYTES / (1024 * 1024)
+        );
         return;
     }
 
