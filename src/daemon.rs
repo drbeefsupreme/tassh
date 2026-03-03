@@ -252,10 +252,17 @@ async fn handle_ipc_connection(
 }
 
 /// Write a response back on the Unix socket.
+///
+/// A 5-second timeout prevents a stuck or suspended IPC client from holding
+/// the daemon task indefinitely.
 async fn write_response(mut stream: UnixStream, json: &str) -> std::io::Result<()> {
-    stream.write_all(json.as_bytes()).await?;
-    stream.write_all(b"\n").await?;
-    Ok(())
+    tokio::time::timeout(Duration::from_secs(5), async {
+        stream.write_all(json.as_bytes()).await?;
+        stream.write_all(b"\n").await?;
+        Ok(())
+    })
+    .await
+    .map_err(|_| std::io::Error::new(std::io::ErrorKind::TimedOut, "IPC write timeout"))?
 }
 
 /// Refresh peer liveness for active SSH sessions.
