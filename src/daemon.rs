@@ -701,9 +701,22 @@ async fn existing_peer_key_for_ip(
         reg.hostnames()
     };
 
+    let mut join_set = tokio::task::JoinSet::new();
     for host in known_hosts {
-        if host_resolves_to_ip(&host, peer_ip).await {
-            return Some(host);
+        join_set.spawn(async move {
+            if host_resolves_to_ip(&host, peer_ip).await {
+                Some(host)
+            } else {
+                None
+            }
+        });
+    }
+
+    while let Some(result) = join_set.join_next().await {
+        match result {
+            Ok(Some(host)) => return Some(host),
+            Ok(None) => continue,
+            Err(e) => warn!("host resolution task failed: {e}"),
         }
     }
     None
