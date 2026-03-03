@@ -1,8 +1,10 @@
 //! IPC message types for Unix socket communication between `tassh notify` and `tassh daemon`.
 
 use serde::{Deserialize, Serialize};
+use serde_with::{base64::Base64, serde_as};
 
 /// Messages sent to the daemon over the Unix socket.
+#[serde_as]
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(tag = "type")]
 pub enum IpcMessage {
@@ -22,9 +24,8 @@ pub enum IpcMessage {
     /// Sent by hidden `tassh inject` command for deterministic E2E fan-out tests.
     InjectFrame {
         /// PNG bytes to broadcast to all connected peers.
-        /// Annotated with serde_bytes so serde_json encodes as base64 (~33% overhead)
-        /// instead of a JSON integer array (~300% overhead).
-        #[serde(with = "serde_bytes")]
+        /// Encoded as base64 (~33% overhead) instead of a JSON integer array (~300% overhead).
+        #[serde_as(as = "Base64")]
         png_bytes: Vec<u8>,
     },
 }
@@ -126,7 +127,7 @@ mod tests {
             png_bytes: png_bytes.clone(),
         };
         let json = serde_json::to_string(&msg).expect("serialize failed");
-        // serde_bytes with serde_json produces a base64 string, not a JSON integer array
+        // serde_with Base64 produces a base64 string, not a JSON integer array
         assert!(json.contains(r#""type":"InjectFrame""#), "json={json}");
         // A base64 string starts with '"', not '['
         assert!(
@@ -135,7 +136,9 @@ mod tests {
         );
         let decoded: IpcMessage = serde_json::from_str(&json).expect("deserialize failed");
         match decoded {
-            IpcMessage::InjectFrame { png_bytes: decoded_bytes } => {
+            IpcMessage::InjectFrame {
+                png_bytes: decoded_bytes,
+            } => {
                 assert_eq!(decoded_bytes, png_bytes);
             }
             other => panic!("unexpected variant: {other:?}"),
