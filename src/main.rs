@@ -13,7 +13,7 @@ use std::time::Duration;
 
 use clap::Parser;
 use cli::Commands;
-use tokio::io::AsyncWriteExt;
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::UnixStream;
 
 #[tokio::main]
@@ -130,10 +130,20 @@ async fn run_status() -> anyhow::Result<()> {
     let (reader, mut writer) = stream.into_split();
     writer.write_all(&json).await?;
 
-    // Read response.
-    let mut buf_reader = tokio::io::BufReader::new(reader);
+    // Read response with a size bound to prevent OOM on malformed daemon responses.
+    const MAX_RESPONSE_BYTES: u64 = 64 * 1024 * 1024; // 64 MiB
+    let mut buf_reader = tokio::io::BufReader::new(reader.take(MAX_RESPONSE_BYTES));
     let mut response_line = String::new();
-    tokio::io::AsyncBufReadExt::read_line(&mut buf_reader, &mut response_line).await?;
+    let n = tokio::io::AsyncBufReadExt::read_line(&mut buf_reader, &mut response_line).await?;
+    if n == 0 {
+        anyhow::bail!("daemon closed connection without sending a response");
+    }
+    if !response_line.ends_with('\n') {
+        anyhow::bail!(
+            "daemon response exceeded size limit ({} MiB) or is missing newline terminator",
+            MAX_RESPONSE_BYTES / 1024 / 1024
+        );
+    }
 
     let response: ipc::StatusResponse = serde_json::from_str(&response_line)?;
 
