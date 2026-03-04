@@ -143,6 +143,7 @@ pub async fn run_daemon(port: u16) -> anyhow::Result<()> {
     let reconcile_clip_tx = clip_tx.clone();
     let reconcile_handle = tokio::spawn(async move {
         let mut ticker = tokio::time::interval(Duration::from_secs(2));
+        ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
         loop {
             ticker.tick().await;
             refresh_peer_liveness(
