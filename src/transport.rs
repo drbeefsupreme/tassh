@@ -87,8 +87,7 @@ pub async fn recv_frame(reader: &mut OwnedReadHalf) -> Result<Frame, TransportEr
             Err(e) => return Err(TransportError::Io(e)),
         }
 
-        let payload_len =
-            u32::from_be_bytes([header[4], header[5], header[6], header[7]]) as usize;
+        let payload_len = u32::from_be_bytes([header[4], header[5], header[6], header[7]]) as usize;
         let mut payload = vec![0u8; payload_len];
         reader.read_exact(&mut payload).await.map_err(|e| {
             if e.kind() == io::ErrorKind::UnexpectedEof {
