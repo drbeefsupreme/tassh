@@ -31,6 +31,9 @@ pub enum TransportError {
     #[error("write timed out (10 s deadline exceeded)")]
     WriteTimeout,
 
+    #[error("read timed out (30 s deadline exceeded)")]
+    ReadTimeout,
+
     #[error("connection closed by peer")]
     ConnectionClosed,
 
@@ -68,33 +71,41 @@ pub async fn send_frame(writer: &mut OwnedWriteHalf, frame: &Frame) -> Result<()
 
 /// Read one [`Frame`] from the reader.
 ///
-/// Returns [`TransportError::ConnectionClosed`] when the peer has closed the
+/// A 30-second read timeout is applied across both the header and payload
+/// reads. Returns [`TransportError::ReadTimeout`] if the deadline is exceeded
+/// (e.g. a peer that sends a partial header then stalls), and
+/// [`TransportError::ConnectionClosed`] when the peer has closed the
 /// connection cleanly (EOF on the 8-byte header read).
 pub async fn recv_frame(reader: &mut OwnedReadHalf) -> Result<Frame, TransportError> {
-    let mut header = [0u8; HEADER_LEN];
-    match reader.read_exact(&mut header).await {
-        Ok(_) => {}
-        Err(e) if e.kind() == io::ErrorKind::UnexpectedEof => {
-            return Err(TransportError::ConnectionClosed);
+    timeout(Duration::from_secs(30), async {
+        let mut header = [0u8; HEADER_LEN];
+        match reader.read_exact(&mut header).await {
+            Ok(_) => {}
+            Err(e) if e.kind() == io::ErrorKind::UnexpectedEof => {
+                return Err(TransportError::ConnectionClosed);
+            }
+            Err(e) => return Err(TransportError::Io(e)),
         }
-        Err(e) => return Err(TransportError::Io(e)),
-    }
 
-    let payload_len = u32::from_be_bytes([header[4], header[5], header[6], header[7]]) as usize;
-    let mut payload = vec![0u8; payload_len];
-    reader.read_exact(&mut payload).await.map_err(|e| {
-        if e.kind() == io::ErrorKind::UnexpectedEof {
-            TransportError::ConnectionClosed
-        } else {
-            TransportError::Io(e)
-        }
-    })?;
+        let payload_len =
+            u32::from_be_bytes([header[4], header[5], header[6], header[7]]) as usize;
+        let mut payload = vec![0u8; payload_len];
+        reader.read_exact(&mut payload).await.map_err(|e| {
+            if e.kind() == io::ErrorKind::UnexpectedEof {
+                TransportError::ConnectionClosed
+            } else {
+                TransportError::Io(e)
+            }
+        })?;
 
-    let mut full = Vec::with_capacity(HEADER_LEN + payload_len);
-    full.extend_from_slice(&header);
-    full.extend_from_slice(&payload);
+        let mut full = Vec::with_capacity(HEADER_LEN + payload_len);
+        full.extend_from_slice(&header);
+        full.extend_from_slice(&payload);
 
-    Frame::from_bytes(&full).map_err(TransportError::Frame)
+        Frame::from_bytes(&full).map_err(TransportError::Frame)
+    })
+    .await
+    .map_err(|_| TransportError::ReadTimeout)?
 }
 
 /// Auto-detect the local Tailscale IPv4 address by running `tailscale ip -4`.
