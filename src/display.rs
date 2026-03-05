@@ -4,8 +4,6 @@
 //! if running headless, spawns Xvfb and publishes the chosen display string to
 //! `~/.tassh/display` for SSH sessions that source it.
 
-#![allow(dead_code)]
-
 use std::os::unix::io::RawFd;
 use std::sync::Arc;
 
