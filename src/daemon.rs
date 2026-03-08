@@ -10,7 +10,7 @@ use std::time::Duration;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::{TcpStream, UnixListener, UnixStream};
 use tokio::sync::{broadcast, mpsc, Mutex};
-use tracing::{debug, info, warn};
+use tracing::{debug, error, info, warn};
 
 use crate::clipboard::{watch_clipboard, ClipboardWriter};
 use crate::display::DisplayManager;
@@ -171,6 +171,20 @@ pub async fn run_daemon(port: u16) -> anyhow::Result<()> {
                     }
                     Err(e) => warn!("IPC accept error: {e}"),
                 }
+            }
+            result = &mut tcp_handle => {
+                match result {
+                    Ok(()) => error!("TCP server task exited unexpectedly; shutting down"),
+                    Err(ref e) => error!("TCP server task panicked: {e}; shutting down"),
+                }
+                break;
+            }
+            result = &mut reconcile_handle => {
+                match result {
+                    Ok(()) => error!("reconcile task exited unexpectedly; shutting down"),
+                    Err(ref e) => error!("reconcile task panicked: {e}; shutting down"),
+                }
+                break;
             }
             _ = sigterm.recv() => {
                 info!("SIGTERM received, shutting down");
