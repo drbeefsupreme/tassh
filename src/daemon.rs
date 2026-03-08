@@ -93,20 +93,28 @@ pub async fn run_daemon(port: u16) -> anyhow::Result<()> {
     let registry = Arc::new(Mutex::new(registry));
 
     // Start clipboard watcher - converts local clipboard changes to broadcast.
-    let clip_tx_clone = clip_tx.clone();
-    let (watch_tx, mut watch_rx) = mpsc::channel::<Frame>(16);
-    let clipboard_handle = tokio::spawn(async move {
-        if let Err(e) = watch_clipboard(watch_tx, watcher_display, watcher_wayland_display).await {
-            warn!("clipboard watcher error: {e}");
-        }
-    });
+    // Keep display config as owned values so they can be cloned into restart attempts.
+    let (watch_tx, watch_rx) = mpsc::channel::<Frame>(16);
+    let mut clipboard_handle = {
+        let wd = watcher_display.clone();
+        let wwd = watcher_wayland_display.clone();
+        tokio::spawn(async move {
+            if let Err(e) = watch_clipboard(watch_tx, wd, wwd).await {
+                warn!("clipboard watcher error: {e}");
+            }
+        })
+    };
 
     // Bridge clipboard watcher (mpsc) to broadcast channel.
-    let broadcast_handle = tokio::spawn(async move {
-        while let Some(frame) = watch_rx.recv().await {
-            let _ = clip_tx_clone.send(Arc::new(frame));
-        }
-    });
+    let mut broadcast_handle = {
+        let clip_tx_clone = clip_tx.clone();
+        tokio::spawn(async move {
+            let mut rx = watch_rx;
+            while let Some(frame) = rx.recv().await {
+                let _ = clip_tx_clone.send(Arc::new(frame));
+            }
+        })
+    };
 
     // Start TCP listener for incoming peer connections (we also act as receiver)
     let tcp_registry = registry.clone();
@@ -158,6 +166,10 @@ pub async fn run_daemon(port: u16) -> anyhow::Result<()> {
     // Handle graceful shutdown
     let mut sigterm = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())?;
 
+    // Exponential backoff for clipboard watcher restarts.
+    let mut watcher_backoff = Duration::from_secs(1);
+    const WATCHER_MAX_BACKOFF: Duration = Duration::from_secs(60);
+
     loop {
         tokio::select! {
             result = listener.accept() => {
@@ -179,6 +191,42 @@ pub async fn run_daemon(port: u16) -> anyhow::Result<()> {
             _ = tokio::signal::ctrl_c() => {
                 info!("Ctrl-C received, shutting down");
                 break;
+            }
+            result = &mut clipboard_handle => {
+                match result {
+                    Ok(()) => warn!(
+                        "clipboard watcher exited, restarting in {:?}",
+                        watcher_backoff
+                    ),
+                    Err(e) => warn!(
+                        "clipboard watcher task failed: {e}, restarting in {:?}",
+                        watcher_backoff
+                    ),
+                }
+                tokio::time::sleep(watcher_backoff).await;
+                watcher_backoff = (watcher_backoff * 2).min(WATCHER_MAX_BACKOFF);
+
+                // Abort the stale bridge; its mpsc receiver sender was dropped when
+                // watch_clipboard returned, so the bridge has already (or will soon) exit.
+                broadcast_handle.abort();
+
+                // Rebuild the channel and restart both tasks.
+                let (new_watch_tx, new_watch_rx) = mpsc::channel::<Frame>(16);
+                let wd = watcher_display.clone();
+                let wwd = watcher_wayland_display.clone();
+                clipboard_handle = tokio::spawn(async move {
+                    if let Err(e) = watch_clipboard(new_watch_tx, wd, wwd).await {
+                        warn!("clipboard watcher error: {e}");
+                    }
+                });
+                let clip_tx_for_bridge = clip_tx.clone();
+                broadcast_handle = tokio::spawn(async move {
+                    let mut rx = new_watch_rx;
+                    while let Some(frame) = rx.recv().await {
+                        let _ = clip_tx_for_bridge.send(Arc::new(frame));
+                    }
+                });
+                info!("clipboard watcher and bridge restarted");
             }
         }
     }
