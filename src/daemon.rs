@@ -10,7 +10,7 @@ use std::time::Duration;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::{TcpStream, UnixListener, UnixStream};
 use tokio::sync::{broadcast, mpsc, Mutex};
-use tracing::{debug, info, warn};
+use tracing::{debug, error, info, warn};
 
 use crate::clipboard::{watch_clipboard, ClipboardWriter};
 use crate::display::DisplayManager;
@@ -113,7 +113,7 @@ pub async fn run_daemon(port: u16) -> anyhow::Result<()> {
     let tcp_display_env = display_mgr.env;
     let tcp_display_str = display_mgr.display_str.clone();
     let tcp_clip_tx = clip_tx.clone();
-    let tcp_handle = tokio::spawn(async move {
+    let mut tcp_handle = tokio::spawn(async move {
         if let Err(e) = run_tcp_server(
             port,
             tcp_registry,
@@ -141,7 +141,7 @@ pub async fn run_daemon(port: u16) -> anyhow::Result<()> {
     // Periodically retry peers that still have active SSH sessions but no daemon connection.
     let reconcile_registry = registry.clone();
     let reconcile_clip_tx = clip_tx.clone();
-    let reconcile_handle = tokio::spawn(async move {
+    let mut reconcile_handle = tokio::spawn(async move {
         let mut ticker = tokio::time::interval(Duration::from_secs(2));
         loop {
             ticker.tick().await;
@@ -171,6 +171,20 @@ pub async fn run_daemon(port: u16) -> anyhow::Result<()> {
                     }
                     Err(e) => warn!("IPC accept error: {e}"),
                 }
+            }
+            result = &mut tcp_handle => {
+                match result {
+                    Ok(()) => error!("TCP server task exited unexpectedly; shutting down"),
+                    Err(ref e) => error!("TCP server task panicked: {e}; shutting down"),
+                }
+                break;
+            }
+            result = &mut reconcile_handle => {
+                match result {
+                    Ok(()) => error!("reconcile task exited unexpectedly; shutting down"),
+                    Err(ref e) => error!("reconcile task panicked: {e}; shutting down"),
+                }
+                break;
             }
             _ = sigterm.recv() => {
                 info!("SIGTERM received, shutting down");
