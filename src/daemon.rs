@@ -113,7 +113,7 @@ pub async fn run_daemon(port: u16) -> anyhow::Result<()> {
     let tcp_display_env = display_mgr.env;
     let tcp_display_str = display_mgr.display_str.clone();
     let tcp_clip_tx = clip_tx.clone();
-    let tcp_handle = tokio::spawn(async move {
+    let mut tcp_handle = tokio::spawn(async move {
         if let Err(e) = run_tcp_server(
             port,
             tcp_registry,
@@ -141,7 +141,7 @@ pub async fn run_daemon(port: u16) -> anyhow::Result<()> {
     // Periodically retry peers that still have active SSH sessions but no daemon connection.
     let reconcile_registry = registry.clone();
     let reconcile_clip_tx = clip_tx.clone();
-    let reconcile_handle = tokio::spawn(async move {
+    let mut reconcile_handle = tokio::spawn(async move {
         let mut ticker = tokio::time::interval(Duration::from_secs(2));
         loop {
             ticker.tick().await;
