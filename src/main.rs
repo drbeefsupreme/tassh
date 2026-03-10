@@ -43,6 +43,15 @@ async fn main() {
             }
             // Always exit 0 — notify failure should not break SSH.
         }
+        Commands::Disconnect(args) => {
+            // Fast fire-and-forget IPC to daemon.
+            // MUST exit quickly — ExitCommand blocks SSH session teardown.
+            if let Err(e) = send_disconnect(&args).await {
+                // Log at debug level only — don't fail the SSH disconnect.
+                tracing::debug!("disconnect failed: {e}");
+            }
+            // Always exit 0 — disconnect failure should not break SSH.
+        }
         Commands::Status => {
             if let Err(e) = run_status().await {
                 eprintln!("status error: {e}");
@@ -89,6 +98,33 @@ async fn send_notify(args: &cli::NotifyArgs) -> anyhow::Result<()> {
     json.push(b'\n');
 
     // Split into owned halves so we can write.
+    let (_, mut writer) = stream.into_split();
+
+    tokio::time::timeout(Duration::from_millis(100), writer.write_all(&json)).await??;
+
+    Ok(())
+}
+
+/// Send a Disconnect notification to the daemon via Unix socket.
+/// Returns quickly (200ms timeout) — must not block SSH session teardown.
+async fn send_disconnect(args: &cli::DisconnectArgs) -> anyhow::Result<()> {
+    let socket_path = daemon::socket_path();
+
+    // Short timeout — if daemon isn't running or slow, bail fast.
+    let stream = tokio::time::timeout(
+        Duration::from_millis(200),
+        UnixStream::connect(&socket_path),
+    )
+    .await??;
+
+    let msg = ipc::IpcMessage::Disconnect {
+        hostname: args.host.clone(),
+        ssh_pid: args.ssh_pid,
+    };
+
+    let mut json = serde_json::to_vec(&msg)?;
+    json.push(b'\n');
+
     let (_, mut writer) = stream.into_split();
 
     tokio::time::timeout(Duration::from_millis(100), writer.write_all(&json)).await??;
