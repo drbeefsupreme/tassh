@@ -36,6 +36,9 @@ pub enum TransportError {
 
     #[error("frame error: {0}")]
     Frame(#[from] FrameError),
+
+    #[error("tailscale command failed (is Tailscale running?): {0}")]
+    TailscaleUnavailable(String),
 }
 
 /// Apply TCP keepalive to a connected stream.
@@ -103,6 +106,10 @@ async fn resolve_tailscale_ip() -> Result<String, TransportError> {
         .args(["ip", "-4"])
         .output()
         .await?;
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr).trim().to_owned();
+        return Err(TransportError::TailscaleUnavailable(stderr));
+    }
     let ip = String::from_utf8_lossy(&output.stdout).trim().to_owned();
     Ok(ip)
 }
