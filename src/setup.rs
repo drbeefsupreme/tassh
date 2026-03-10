@@ -173,6 +173,7 @@ fn ssh_config_stanza() -> String {
 Host *
     PermitLocalCommand yes
     LocalCommand tassh notify --host %h --port %p --ssh-pid $PPID
+    ExitCommand tassh disconnect --host %h --ssh-pid $PPID
 "#
     .to_string()
 }
@@ -239,11 +240,18 @@ pub fn run_setup_daemon(args: &SetupDaemonArgs) -> anyhow::Result<()> {
 fn setup_ssh_config(yes: bool) -> anyhow::Result<()> {
     let ssh_config_path = home_dir().join(".ssh/config");
 
-    // If the stanza is already present, nothing to do.
+    // If the stanza is already present, check if it is complete.
     if ssh_config_path.exists() {
         let content = std::fs::read_to_string(&ssh_config_path)?;
         if content.contains("# tassh:") {
-            println!("SSH config already contains the tassh stanza — skipping.");
+            if content.contains("ExitCommand tassh disconnect") {
+                println!("SSH config already contains the tassh stanza — skipping.");
+            } else {
+                // Old stanza present without ExitCommand (pre-#183 install).
+                println!("WARNING: ~/.ssh/config has an older tassh stanza without ExitCommand.");
+                println!("Please manually add the ExitCommand line to your Host * block:");
+                println!("    ExitCommand tassh disconnect --host %h --ssh-pid $PPID");
+            }
             return Ok(());
         }
 

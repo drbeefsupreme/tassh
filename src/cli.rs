@@ -14,6 +14,8 @@ pub enum Commands {
     Daemon(DaemonArgs),
     /// Notify daemon of SSH connection (called by LocalCommand, fast fire-and-forget)
     Notify(NotifyArgs),
+    /// Notify daemon of SSH disconnection (called by ExitCommand, fast fire-and-forget)
+    Disconnect(DisconnectArgs),
     /// Show daemon status and active peer connections
     Status,
     /// Inject a PNG frame into daemon broadcast (hidden; used by E2E harness)
@@ -44,6 +46,17 @@ pub struct NotifyArgs {
     pub port: u16,
 
     /// PID of the SSH process (from $PPID in LocalCommand)
+    #[arg(long)]
+    pub ssh_pid: u32,
+}
+
+#[derive(Debug, Parser)]
+pub struct DisconnectArgs {
+    /// Remote hostname (from SSH %h token)
+    #[arg(long)]
+    pub host: String,
+
+    /// PID of the SSH process (from $PPID in ExitCommand)
     #[arg(long)]
     pub ssh_pid: u32,
 }
