@@ -442,23 +442,28 @@ async fn handle_disconnect(hostname: &str, ssh_pid: u32, registry: Arc<Mutex<Pee
     handle_pid_exit(hostname, ssh_pid, registry).await;
 }
 
-/// Called when an SSH process exits (detected via pidfd).
+/// Called when an SSH process exits (detected via pidfd or ExitCommand IPC).
+///
+/// Guards all side-effects on `watched_pids.remove` returning `true` so that
+/// the pidfd watcher and the ExitCommand IPC path are idempotent — whichever
+/// fires first performs the decrement; the second is a no-op.
 async fn handle_pid_exit(hostname: &str, ssh_pid: u32, registry: Arc<Mutex<PeerRegistry>>) {
     let mut reg = registry.lock().await;
     if let Some(peer) = reg.get_mut(hostname) {
-        peer.watched_pids.remove(&ssh_pid);
-        peer.session_count = peer.session_count.saturating_sub(1);
+        if peer.watched_pids.remove(&ssh_pid) {
+            peer.session_count = peer.session_count.saturating_sub(1);
 
-        if peer.session_count == 0 {
-            info!("all SSH sessions to {hostname} closed, disconnecting");
-            // Signal connection task to close
-            if let Some(close_tx) = peer.close_tx.take() {
-                drop(close_tx); // Dropping the sender signals the receiver
-            }
-            peer.connected = false;
-            // Abort any remaining PID watchers
-            for handle in peer.pid_watcher_handles.drain(..) {
-                handle.abort();
+            if peer.session_count == 0 {
+                info!("all SSH sessions to {hostname} closed, disconnecting");
+                // Signal connection task to close
+                if let Some(close_tx) = peer.close_tx.take() {
+                    drop(close_tx); // Dropping the sender signals the receiver
+                }
+                peer.connected = false;
+                // Abort any remaining PID watchers
+                for handle in peer.pid_watcher_handles.drain(..) {
+                    handle.abort();
+                }
             }
         }
     }
