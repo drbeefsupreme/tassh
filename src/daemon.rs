@@ -92,21 +92,35 @@ pub async fn run_daemon(port: u16) -> anyhow::Result<()> {
     let (registry, clip_tx) = PeerRegistry::new();
     let registry = Arc::new(Mutex::new(registry));
 
-    // Start clipboard watcher - converts local clipboard changes to broadcast.
-    let clip_tx_clone = clip_tx.clone();
-    let (watch_tx, mut watch_rx) = mpsc::channel::<Frame>(16);
-    let clipboard_handle = tokio::spawn(async move {
-        if let Err(e) = watch_clipboard(watch_tx, watcher_display, watcher_wayland_display).await {
-            warn!("clipboard watcher error: {e}");
-        }
-    });
+    // Spawn the clipboard watcher and broadcast bridge as a coordinated pair.
+    //
+    // clipboard_handle: runs watch_clipboard(), sending frames into watch_tx (mpsc).
+    // broadcast_handle: bridges watch_rx → broadcast channel.
+    //
+    // These two tasks are coupled: when clipboard_handle exits, watch_tx is dropped,
+    // so broadcast_handle also exits as watch_rx yields None. Any restart must create
+    // a fresh (watch_tx, watch_rx) pair and restart BOTH tasks together.
+    let clip_tx_for_watcher = clip_tx.clone();
+    let watcher_display_base = watcher_display.clone();
+    let watcher_wayland_display_base = watcher_wayland_display.clone();
+    let spawn_clipboard_pair = move |display: Option<String>, wayland_display: Option<String>| {
+        let clip_tx_clone = clip_tx_for_watcher.clone();
+        let (watch_tx, mut watch_rx) = mpsc::channel::<Frame>(16);
+        let ch = tokio::spawn(async move {
+            if let Err(e) = watch_clipboard(watch_tx, display, wayland_display).await {
+                warn!("clipboard watcher error: {e}");
+            }
+        });
+        let bh = tokio::spawn(async move {
+            while let Some(frame) = watch_rx.recv().await {
+                let _ = clip_tx_clone.send(Arc::new(frame));
+            }
+        });
+        (ch, bh)
+    };
 
-    // Bridge clipboard watcher (mpsc) to broadcast channel.
-    let broadcast_handle = tokio::spawn(async move {
-        while let Some(frame) = watch_rx.recv().await {
-            let _ = clip_tx_clone.send(Arc::new(frame));
-        }
-    });
+    let (mut clipboard_handle, mut broadcast_handle) =
+        spawn_clipboard_pair(watcher_display, watcher_wayland_display);
 
     // Start TCP listener for incoming peer connections (we also act as receiver)
     let tcp_registry = registry.clone();
@@ -171,6 +185,30 @@ pub async fn run_daemon(port: u16) -> anyhow::Result<()> {
                     }
                     Err(e) => warn!("IPC accept error: {e}"),
                 }
+            }
+            _ = &mut clipboard_handle => {
+                // When the clipboard watcher exits, watch_tx is dropped which also
+                // causes broadcast_handle to exit. Restart both with a fresh channel.
+                warn!("clipboard watcher exited, restarting both clipboard tasks");
+                broadcast_handle.abort();
+                let pair = spawn_clipboard_pair(
+                    watcher_display_base.clone(),
+                    watcher_wayland_display_base.clone(),
+                );
+                clipboard_handle = pair.0;
+                broadcast_handle = pair.1;
+            }
+            _ = &mut broadcast_handle => {
+                // broadcast_handle should not exit independently, but handle it
+                // defensively by restarting both tasks with a fresh channel.
+                warn!("clipboard broadcast bridge exited, restarting both clipboard tasks");
+                clipboard_handle.abort();
+                let pair = spawn_clipboard_pair(
+                    watcher_display_base.clone(),
+                    watcher_wayland_display_base.clone(),
+                );
+                clipboard_handle = pair.0;
+                broadcast_handle = pair.1;
             }
             _ = sigterm.recv() => {
                 info!("SIGTERM received, shutting down");
