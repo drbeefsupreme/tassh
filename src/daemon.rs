@@ -607,7 +607,20 @@ async fn run_tcp_server(
     info!("TCP server listening on {bind_ip}:{port}");
 
     loop {
-        let (stream, peer_addr) = listener.accept().await?;
+        let (stream, peer_addr) = match listener.accept().await {
+            Ok(conn) => conn,
+            Err(e) => {
+                match e.kind() {
+                    std::io::ErrorKind::WouldBlock
+                    | std::io::ErrorKind::ConnectionAborted
+                    | std::io::ErrorKind::ConnectionReset => {
+                        warn!("transient accept error (continuing): {e}");
+                        continue;
+                    }
+                    _ => return Err(e.into()),
+                }
+            }
+        };
         let peer_ip = peer_addr.ip();
         let peer_host = resolve_inbound_peer_key(peer_ip, registry.clone()).await;
         info!("accepted connection from {peer_addr} (peer={peer_host})");
