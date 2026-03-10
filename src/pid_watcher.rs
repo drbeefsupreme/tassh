@@ -16,7 +16,10 @@ fn read_proc_starttime(pid: u32) -> Option<u64> {
     let stat = std::fs::read_to_string(format!("/proc/{pid}/stat")).ok()?;
     // Field 2 (comm) is in parentheses and may contain spaces or nested parens.
     // Use the last ')' to safely locate the end of the comm field.
-    let after_comm = stat.rfind(')')?.checked_add(1).and_then(|i| stat.get(i..))?;
+    let after_comm = stat
+        .rfind(')')?
+        .checked_add(1)
+        .and_then(|i| stat.get(i..))?;
     // Fields after comm (1-indexed per proc(5)):
     //   3=state, 4=ppid, 5=pgrp, 6=session, 7=tty_nr, 8=tpgid,
     //   9=flags, 10=minflt, 11=cminflt, 12=majflt, 13=cmajflt,
