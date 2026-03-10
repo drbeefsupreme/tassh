@@ -807,6 +807,14 @@ async fn resolve_tailscale_ip() -> anyhow::Result<String> {
         .args(["ip", "-4"])
         .output()
         .await?;
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr).trim().to_owned();
+        anyhow::bail!(
+            "tailscale ip -4 exited with {}: {} - is Tailscale running?",
+            output.status,
+            stderr
+        );
+    }
     let ip = String::from_utf8_lossy(&output.stdout).trim().to_owned();
     if ip.is_empty() {
         anyhow::bail!("tailscale ip -4 returned empty - is Tailscale running?");
