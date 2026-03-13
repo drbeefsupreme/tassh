@@ -2,6 +2,7 @@
 
 use std::io::{BufRead, IsTerminal, Read, Seek, SeekFrom, Write};
 use std::os::fd::AsRawFd;
+use std::os::unix::fs::PermissionsExt;
 use std::path::PathBuf;
 use std::process::Command;
 
@@ -266,8 +267,11 @@ fn setup_ssh_config(yes: bool) -> anyhow::Result<()> {
             writeln!(file, "{}", ssh_config_stanza())?;
             println!("Appended LocalCommand stanza to ~/.ssh/config");
         } else {
-            std::fs::create_dir_all(ssh_config_path.parent().unwrap())?;
+            let ssh_dir = ssh_config_path.parent().unwrap();
+            std::fs::create_dir_all(ssh_dir)?;
+            std::fs::set_permissions(ssh_dir, std::fs::Permissions::from_mode(0o700))?;
             std::fs::write(&ssh_config_path, ssh_config_stanza())?;
+            std::fs::set_permissions(&ssh_config_path, std::fs::Permissions::from_mode(0o600))?;
             println!("Created ~/.ssh/config with LocalCommand stanza");
         }
     } else {
