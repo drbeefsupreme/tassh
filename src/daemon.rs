@@ -12,6 +12,8 @@ use tokio::net::{TcpStream, UnixListener, UnixStream};
 use tokio::sync::{broadcast, mpsc, Mutex};
 use tracing::{debug, info, warn};
 
+use sha2::{Digest, Sha256};
+
 use crate::clipboard::{watch_clipboard, ClipboardWriter};
 use crate::display::DisplayManager;
 use crate::ipc::{IpcMessage, StatusResponse};
@@ -92,6 +94,11 @@ pub async fn run_daemon(port: u16) -> anyhow::Result<()> {
     let (registry, clip_tx) = PeerRegistry::new();
     let registry = Arc::new(Mutex::new(registry));
 
+    // Shared hash of the most recently received inbound TCP frame payload.
+    // Used to suppress the clipboard watcher from re-broadcasting frames that
+    // were just written to the local clipboard by an inbound peer connection.
+    let last_inbound_hash: Arc<Mutex<Option<[u8; 32]>>> = Arc::new(Mutex::new(None));
+
     // Start clipboard watcher - converts local clipboard changes to broadcast.
     let clip_tx_clone = clip_tx.clone();
     let (watch_tx, mut watch_rx) = mpsc::channel::<Frame>(16);
@@ -102,9 +109,25 @@ pub async fn run_daemon(port: u16) -> anyhow::Result<()> {
     });
 
     // Bridge clipboard watcher (mpsc) to broadcast channel.
+    // Suppresses frames whose hash matches the last inbound peer frame to prevent echo.
+    let last_inbound_hash_bridge = last_inbound_hash.clone();
     let broadcast_handle = tokio::spawn(async move {
         while let Some(frame) = watch_rx.recv().await {
-            let _ = clip_tx_clone.send(Arc::new(frame));
+            let hash = payload_hash(&frame.payload);
+            let suppressed = {
+                let mut lih = last_inbound_hash_bridge.lock().await;
+                if *lih == Some(hash) {
+                    *lih = None;
+                    true
+                } else {
+                    false
+                }
+            };
+            if suppressed {
+                debug!("bridge: suppressing watcher echo of inbound frame");
+                continue;
+            }
+            let _ = clip_tx_clone.send(Arc::new((None, frame)));
         }
     });
 
@@ -113,6 +136,7 @@ pub async fn run_daemon(port: u16) -> anyhow::Result<()> {
     let tcp_display_env = display_mgr.env;
     let tcp_display_str = display_mgr.display_str.clone();
     let tcp_clip_tx = clip_tx.clone();
+    let tcp_last_inbound_hash = last_inbound_hash.clone();
     let tcp_handle = tokio::spawn(async move {
         if let Err(e) = run_tcp_server(
             port,
@@ -120,6 +144,7 @@ pub async fn run_daemon(port: u16) -> anyhow::Result<()> {
             tcp_display_env,
             tcp_display_str,
             tcp_clip_tx,
+            tcp_last_inbound_hash,
         )
         .await
         {
@@ -243,7 +268,7 @@ async fn handle_ipc_connection(
         Ok(IpcMessage::InjectFrame { png_bytes }) => {
             let kb = png_bytes.len() / 1024;
             debug!("IPC: InjectFrame ({kb} KB)");
-            let _ = clip_tx.send(Arc::new(Frame::new_png(png_bytes)));
+            let _ = clip_tx.send(Arc::new((None, Frame::new_png(png_bytes))));
         }
         Err(e) => {
             warn!("invalid IPC message: {e}");
@@ -482,7 +507,7 @@ async fn start_peer_connection(
     hostname: &str,
     port: u16,
     registry: Arc<Mutex<PeerRegistry>>,
-    clip_tx: broadcast::Sender<Arc<Frame>>,
+    clip_tx: broadcast::Sender<Arc<(Option<String>, Frame)>>,
 ) {
     let addr = format!("{hostname}:{port}");
 
@@ -535,8 +560,14 @@ async fn start_peer_connection(
                     tokio::select! {
                         result = clip_rx.recv() => {
                             match result {
-                                Ok(frame) => {
-                                    if let Err(e) = send_frame(&mut writer, &frame).await {
+                                Ok(tagged) => {
+                                    let (source, frame) = &*tagged;
+                                    // Suppress echo: skip frames that originated from this peer.
+                                    if source.as_deref() == Some(hostname_owned.as_str()) {
+                                        debug!("suppressing echo to {hostname_owned}");
+                                        continue;
+                                    }
+                                    if let Err(e) = send_frame(&mut writer, frame).await {
                                         warn!("send to {hostname_owned} failed: {e}");
                                         break;
                                     }
@@ -599,7 +630,8 @@ async fn run_tcp_server(
     registry: Arc<Mutex<PeerRegistry>>,
     display_env: crate::protocol::DisplayEnvironment,
     display_str: String,
-    _clip_tx: broadcast::Sender<Arc<Frame>>,
+    clip_tx: broadcast::Sender<Arc<(Option<String>, Frame)>>,
+    last_inbound_hash: Arc<Mutex<Option<[u8; 32]>>>,
 ) -> anyhow::Result<()> {
     // Resolve Tailscale IP for binding
     let bind_ip = resolve_tailscale_ip().await?;
@@ -627,6 +659,9 @@ async fn run_tcp_server(
         let mut clip_writer = ClipboardWriter::new(display_env, Some(display_str.clone()));
         let registry_for_cleanup = registry.clone();
         let peer_host_for_cleanup = peer_host.clone();
+        let clip_tx_for_spawn = clip_tx.clone();
+        let last_inbound_hash_for_spawn = last_inbound_hash.clone();
+        let peer_host_for_spawn = peer_host.clone();
 
         tokio::spawn(async move {
             // Keep write half alive so connected peers do not see immediate EOF.
@@ -636,9 +671,19 @@ async fn run_tcp_server(
                     Ok(frame) => {
                         let kb = frame.payload.len() / 1024;
                         info!("received frame from {peer_addr}: {kb} KB");
+                        // Set suppression hash before clipboard write so the watcher bridge
+                        // skips this frame when it detects the clipboard change.
+                        let hash = payload_hash(&frame.payload);
+                        {
+                            let mut lih = last_inbound_hash_for_spawn.lock().await;
+                            *lih = Some(hash);
+                        }
                         if let Err(e) = clip_writer.write(&frame.payload).await {
                             warn!("clipboard write failed: {e}");
                         }
+                        // Broadcast to other peers; source tag suppresses echo back to sender.
+                        let _ = clip_tx_for_spawn
+                            .send(Arc::new((Some(peer_host_for_spawn.clone()), frame)));
                     }
                     Err(crate::transport::TransportError::ConnectionClosed) => {
                         info!("peer {peer_addr} disconnected");
@@ -1022,6 +1067,11 @@ fn normalize_ssh_host(raw: &str) -> Option<String> {
     } else {
         None
     }
+}
+
+/// Compute SHA-256 of a payload for inbound frame echo suppression.
+fn payload_hash(bytes: &[u8]) -> [u8; 32] {
+    Sha256::digest(bytes).into()
 }
 
 async fn discover_local_aliases() -> HashSet<String> {

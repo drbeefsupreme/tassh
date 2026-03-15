@@ -10,8 +10,9 @@ use crate::protocol::Frame;
 /// Registry of all connected peers, keyed by hostname.
 pub struct PeerRegistry {
     peers: HashMap<String, PeerState>,
-    /// Broadcast channel for clipboard frames - all peers subscribe
-    clip_tx: broadcast::Sender<Arc<Frame>>,
+    /// Broadcast channel for clipboard frames - all peers subscribe.
+    /// The `Option<String>` is the source peer hostname (`None` = local clipboard change).
+    clip_tx: broadcast::Sender<Arc<(Option<String>, Frame)>>,
 }
 
 /// State for a single connected peer.
@@ -36,8 +37,8 @@ pub struct PeerState {
 
 impl PeerRegistry {
     /// Create a new registry with a broadcast channel for clipboard frames.
-    pub fn new() -> (Self, broadcast::Sender<Arc<Frame>>) {
-        let (clip_tx, _) = broadcast::channel::<Arc<Frame>>(16);
+    pub fn new() -> (Self, broadcast::Sender<Arc<(Option<String>, Frame)>>) {
+        let (clip_tx, _) = broadcast::channel::<Arc<(Option<String>, Frame)>>(16);
         let registry = Self {
             peers: HashMap::new(),
             clip_tx: clip_tx.clone(),
@@ -120,7 +121,7 @@ impl PeerRegistry {
     }
 
     /// Get a subscriber to the clipboard broadcast channel.
-    pub fn subscribe_clipboard(&self) -> broadcast::Receiver<Arc<Frame>> {
+    pub fn subscribe_clipboard(&self) -> broadcast::Receiver<Arc<(Option<String>, Frame)>> {
         self.clip_tx.subscribe()
     }
 }
