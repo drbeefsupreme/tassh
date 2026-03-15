@@ -230,7 +230,7 @@ pub async fn run_daemon(port: u16) -> anyhow::Result<()> {
 async fn handle_ipc_connection(
     stream: UnixStream,
     registry: Arc<Mutex<PeerRegistry>>,
-    clip_tx: broadcast::Sender<Arc<Frame>>,
+    clip_tx: broadcast::Sender<Arc<(Option<String>, Frame)>>,
     port: u16,
 ) {
     let mut reader = BufReader::new(stream);
@@ -286,7 +286,7 @@ async fn write_response(mut stream: UnixStream, json: &str) -> std::io::Result<(
 /// Refresh peer liveness for active SSH sessions.
 async fn refresh_peer_liveness(
     registry: Arc<Mutex<PeerRegistry>>,
-    clip_tx: broadcast::Sender<Arc<Frame>>,
+    clip_tx: broadcast::Sender<Arc<(Option<String>, Frame)>>,
     port: u16,
     check_connected: bool,
 ) {
@@ -399,7 +399,7 @@ async fn handle_connect(
     hostname: &str,
     ssh_pid: u32,
     registry: Arc<Mutex<PeerRegistry>>,
-    clip_tx: broadcast::Sender<Arc<Frame>>,
+    clip_tx: broadcast::Sender<Arc<(Option<String>, Frame)>>,
     port: u16,
 ) {
     let mut reg = registry.lock().await;
@@ -863,7 +863,7 @@ async fn resolve_tailscale_ip() -> anyhow::Result<String> {
 /// Scans for running ssh processes and probes their remote hosts.
 async fn discover_existing_ssh_sessions(
     registry: Arc<Mutex<PeerRegistry>>,
-    clip_tx: broadcast::Sender<Arc<Frame>>,
+    clip_tx: broadcast::Sender<Arc<(Option<String>, Frame)>>,
     port: u16,
 ) {
     let self_aliases = discover_local_aliases().await;
