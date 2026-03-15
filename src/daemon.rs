@@ -446,19 +446,20 @@ async fn handle_disconnect(hostname: &str, ssh_pid: u32, registry: Arc<Mutex<Pee
 async fn handle_pid_exit(hostname: &str, ssh_pid: u32, registry: Arc<Mutex<PeerRegistry>>) {
     let mut reg = registry.lock().await;
     if let Some(peer) = reg.get_mut(hostname) {
-        peer.watched_pids.remove(&ssh_pid);
-        peer.session_count = peer.session_count.saturating_sub(1);
+        if peer.watched_pids.remove(&ssh_pid) {
+            peer.session_count = peer.session_count.saturating_sub(1);
 
-        if peer.session_count == 0 {
-            info!("all SSH sessions to {hostname} closed, disconnecting");
-            // Signal connection task to close
-            if let Some(close_tx) = peer.close_tx.take() {
-                drop(close_tx); // Dropping the sender signals the receiver
-            }
-            peer.connected = false;
-            // Abort any remaining PID watchers
-            for handle in peer.pid_watcher_handles.drain(..) {
-                handle.abort();
+            if peer.session_count == 0 {
+                info!("all SSH sessions to {hostname} closed, disconnecting");
+                // Signal connection task to close
+                if let Some(close_tx) = peer.close_tx.take() {
+                    drop(close_tx); // Dropping the sender signals the receiver
+                }
+                peer.connected = false;
+                // Abort any remaining PID watchers
+                for handle in peer.pid_watcher_handles.drain(..) {
+                    handle.abort();
+                }
             }
         }
     }
