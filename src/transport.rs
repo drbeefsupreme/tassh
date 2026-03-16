@@ -133,7 +133,9 @@ pub async fn server(
     loop {
         let (stream, peer) = listener.accept().await?;
         warn!("accepted connection from {peer}");
-        apply_keepalive(&stream)?;
+        if let Err(e) = apply_keepalive(&stream) {
+            warn!("failed to set keepalive: {e}");
+        }
 
         let (mut reader, _writer) = stream.into_split();
         // Create a ClipboardWriter per connection so each connection gets a fresh writer.
