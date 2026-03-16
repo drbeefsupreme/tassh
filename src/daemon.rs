@@ -12,7 +12,7 @@ use tokio::net::{TcpStream, UnixListener, UnixStream};
 use tokio::sync::{broadcast, mpsc, Mutex};
 use tracing::{debug, info, warn};
 
-use crate::clipboard::{watch_clipboard, ClipboardWriter};
+use crate::clipboard::{check_clipboard_tools, watch_clipboard, ClipboardWriter};
 use crate::display::DisplayManager;
 use crate::ipc::{IpcMessage, StatusResponse};
 use crate::peer::PeerRegistry;
@@ -63,6 +63,9 @@ pub async fn run_daemon(port: u16) -> anyhow::Result<()> {
         .await
         .map_err(|e| anyhow::anyhow!("display init failed (Xvfb required): {e}"))?;
     info!("display initialized: {:?}", display_mgr.env);
+
+    // Fail fast if the required clipboard tool (xclip / wl-copy) is absent.
+    check_clipboard_tools(&display_mgr.env).await?;
 
     // Choose clipboard watcher env:
     // - Prefer the original desktop env captured at process start.
